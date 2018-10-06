@@ -7,22 +7,40 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		7F5A5AF11FFDFEB900E7603B /* Reprocessing.m in Sources */ = {isa = PBXBuildFile; fileRef = 7F5A5AF01FFDFEB900E7603B /* Reprocessing.m */; };
+		435E977B21685B4A00D1B7D9 /* Ios.o in Frameworks */ = {isa = PBXBuildFile; fileRef = 435E977A21685B4A00D1B7D9 /* Ios.o */; };
+		43977CC221671C0400B2F6EA /* Reprocessing.m in Sources */ = {isa = PBXBuildFile; fileRef = 43977CC021671C0400B2F6EA /* Reprocessing.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		43977CC521671C1200B2F6EA /* CBindings.m in Sources */ = {isa = PBXBuildFile; fileRef = 43977CC321671C1200B2F6EA /* CBindings.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		43977CC621671C1200B2F6EA /* CTgls.m in Sources */ = {isa = PBXBuildFile; fileRef = 43977CC421671C1200B2F6EA /* CTgls.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		43977CC921674E1200B2F6EA /* libasmrun.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 43977CB321671A9200B2F6EA /* libasmrun.a */; };
+		43977CCA21674E1200B2F6EA /* libbigarray.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 43977CB521671A9200B2F6EA /* libbigarray.a */; };
+		43977CCB21674E1200B2F6EA /* libthreads.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 43977CB421671A9200B2F6EA /* libthreads.a */; };
 		7F5A5AF41FFE010600E7603B /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 7F5A5AF31FFE010600E7603B /* LaunchScreen.storyboard */; };
 		7F6B2A481FDF7C9B00DC8E5E /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 7F6B2A471FDF7C9B00DC8E5E /* assets */; };
-		7F6B2A4C1FDF7F4400DC8E5E /* libreasongl.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 7F6B2A4B1FDF7F4400DC8E5E /* libreasongl.a */; };
 		C99F606A1E34FE8F0064B563 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = C99F60691E34FE8F0064B563 /* main.m */; };
 		C99F606D1E34FE8F0064B563 /* AppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = C99F606C1E34FE8F0064B563 /* AppDelegate.m */; };
 		C99F60751E34FE8F0064B563 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C99F60741E34FE8F0064B563 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		7F5A5AF01FFDFEB900E7603B /* Reprocessing.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = Reprocessing.m; path = "../reprocessing/Reprocessing.m"; sourceTree = "<group>"; };
-		7F5A5AF21FFDFEBE00E7603B /* Reprocessing.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Reprocessing.h; path = "../reprocessing/Reprocessing.h"; sourceTree = "<group>"; };
+		435E977A21685B4A00D1B7D9 /* Ios.o */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.objfile"; name = Ios.o; path = ../lib/bs/ios/Ios.o; sourceTree = "<group>"; };
+		43977CAE21671A6400B2F6EA /* Game.o */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.objfile"; name = Game.o; path = ../lib/bs/ios/src/Game.o; sourceTree = "<group>"; };
+		43977CB021671A7000B2F6EA /* libreasongl.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libreasongl.a; path = "../../reasongl-ios/libreasongl.a"; sourceTree = "<group>"; };
+		43977CB221671A9200B2F6EA /* libunix.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libunix.a; path = "../node_modules/ocaml-cross-mobile/ios-arm64/lib/ocaml/libunix.a"; sourceTree = "<group>"; };
+		43977CB321671A9200B2F6EA /* libasmrun.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libasmrun.a; path = "../node_modules/ocaml-cross-mobile/ios-arm64/lib/ocaml/libasmrun.a"; sourceTree = "<group>"; };
+		43977CB421671A9200B2F6EA /* libthreads.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libthreads.a; path = "../node_modules/ocaml-cross-mobile/ios-arm64/lib/ocaml/libthreads.a"; sourceTree = "<group>"; };
+		43977CB521671A9200B2F6EA /* libbigarray.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libbigarray.a; path = "../node_modules/ocaml-cross-mobile/ios-arm64/lib/ocaml/libbigarray.a"; sourceTree = "<group>"; };
+		43977CBA21671B9F00B2F6EA /* CTgls.o */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.objfile"; name = CTgls.o; path = "../../reasongl-ios/CTgls.o"; sourceTree = "<group>"; };
+		43977CBC21671BCB00B2F6EA /* CBindings.o */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.objfile"; name = CBindings.o; path = "../../reasongl-ios/CBindings.o"; sourceTree = "<group>"; };
+		43977CBD21671BCB00B2F6EA /* reprocessing.o */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.objfile"; name = reprocessing.o; path = "../../reasongl-ios/reprocessing.o"; sourceTree = "<group>"; };
+		43977CC021671C0400B2F6EA /* Reprocessing.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = Reprocessing.m; path = "../../../reasongl-ios/ios/Reprocessing.m"; sourceTree = "<group>"; };
+		43977CC121671C0400B2F6EA /* Reprocessing.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = Reprocessing.h; path = "../../../reasongl-ios/ios/Reprocessing.h"; sourceTree = "<group>"; };
+		43977CC321671C1200B2F6EA /* CBindings.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = CBindings.m; path = "../../../reasongl-ios/src/CBindings.m"; sourceTree = "<group>"; };
+		43977CC421671C1200B2F6EA /* CTgls.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = CTgls.m; path = "../../../reasongl-ios/src/CTgls.m"; sourceTree = "<group>"; };
+		43977CC721671DB100B2F6EA /* libeverything.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libeverything.a; path = ../libeverything.a; sourceTree = "<group>"; };
 		7F5A5AF31FFE010600E7603B /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		7F6B2A471FDF7C9B00DC8E5E /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; name = assets; path = ../../assets; sourceTree = "<group>"; };
 		7F6B2A4B1FDF7F4400DC8E5E /* libreasongl.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libreasongl.a; sourceTree = "<group>"; };
-		C99F60651E34FE8F0064B563 /* Gravitron.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = Gravitron.app; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C99F60651E34FE8F0064B563 /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C99F60691E34FE8F0064B563 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
 		C99F606B1E34FE8F0064B563 /* AppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = "<group>"; };
 		C99F606C1E34FE8F0064B563 /* AppDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AppDelegate.m; sourceTree = "<group>"; };
@@ -35,7 +53,10 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				7F6B2A4C1FDF7F4400DC8E5E /* libreasongl.a in Frameworks */,
+				435E977B21685B4A00D1B7D9 /* Ios.o in Frameworks */,
+				43977CC921674E1200B2F6EA /* libasmrun.a in Frameworks */,
+				43977CCA21674E1200B2F6EA /* libbigarray.a in Frameworks */,
+				43977CCB21674E1200B2F6EA /* libthreads.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -45,6 +66,17 @@
 		278727F01E3805CF004B754D /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				435E977A21685B4A00D1B7D9 /* Ios.o */,
+				43977CC721671DB100B2F6EA /* libeverything.a */,
+				43977CBC21671BCB00B2F6EA /* CBindings.o */,
+				43977CBD21671BCB00B2F6EA /* reprocessing.o */,
+				43977CBA21671B9F00B2F6EA /* CTgls.o */,
+				43977CB321671A9200B2F6EA /* libasmrun.a */,
+				43977CB521671A9200B2F6EA /* libbigarray.a */,
+				43977CB421671A9200B2F6EA /* libthreads.a */,
+				43977CB221671A9200B2F6EA /* libunix.a */,
+				43977CB021671A7000B2F6EA /* libreasongl.a */,
+				43977CAE21671A6400B2F6EA /* Game.o */,
 				7F6B2A4B1FDF7F4400DC8E5E /* libreasongl.a */,
 			);
 			name = Frameworks;
@@ -62,7 +94,7 @@
 		C99F60661E34FE8F0064B563 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				C99F60651E34FE8F0064B563 /* Gravitron.app */,
+				C99F60651E34FE8F0064B563 /* App.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -73,9 +105,11 @@
 				7F6B2A471FDF7C9B00DC8E5E /* assets */,
 				C99F606B1E34FE8F0064B563 /* AppDelegate.h */,
 				C99F606C1E34FE8F0064B563 /* AppDelegate.m */,
+				43977CC121671C0400B2F6EA /* Reprocessing.h */,
+				43977CC021671C0400B2F6EA /* Reprocessing.m */,
+				43977CC321671C1200B2F6EA /* CBindings.m */,
+				43977CC421671C1200B2F6EA /* CTgls.m */,
 				7F5A5AF31FFE010600E7603B /* LaunchScreen.storyboard */,
-				7F5A5AF01FFDFEB900E7603B /* Reprocessing.m */,
-				7F5A5AF21FFDFEBE00E7603B /* Reprocessing.h */,
 				C99F60741E34FE8F0064B563 /* Assets.xcassets */,
 				C99F60791E34FE8F0064B563 /* Info.plist */,
 				C99F60681E34FE8F0064B563 /* Supporting Files */,
@@ -108,7 +142,7 @@
 			);
 			name = App;
 			productName = Gravitron;
-			productReference = C99F60651E34FE8F0064B563 /* Gravitron.app */;
+			productReference = C99F60651E34FE8F0064B563 /* App.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -122,7 +156,7 @@
 				TargetAttributes = {
 					C99F60641E34FE8E0064B563 = {
 						CreatedOnToolsVersion = 8.1;
-						DevelopmentTeam = B79F793LZ6;
+						DevelopmentTeam = M544ZWZGJ6;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -164,8 +198,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				C99F606D1E34FE8F0064B563 /* AppDelegate.m in Sources */,
-				7F5A5AF11FFDFEB900E7603B /* Reprocessing.m in Sources */,
+				43977CC621671C1200B2F6EA /* CTgls.m in Sources */,
+				43977CC221671C0400B2F6EA /* Reprocessing.m in Sources */,
 				C99F606A1E34FE8F0064B563 /* main.m in Sources */,
+				43977CC521671C1200B2F6EA /* CBindings.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -270,15 +306,28 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = B79F793LZ6;
+				DEVELOPMENT_TEAM = M544ZWZGJ6;
 				ENABLE_BITCODE = NO;
 				GCC_DYNAMIC_NO_PIC = NO;
-				HEADER_SEARCH_PATHS = "\"~/.ocaml-cross-mobile/ios-x86_64/lib/ocaml/caml\"";
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+					"CAML_NAME_SPACE=1",
+				);
+				HEADER_SEARCH_PATHS = (
+					"/Users/benjamin/Desktop/reprocessing-example-cross-platform/node_modules/ocaml-cross-mobile/ios-arm64/lib/ocaml",
+					"/Users/benjamin/Desktop/reprocessing-example-cross-platform/node_modules/reasongl-ios/ios",
+				);
 				INFOPLIST_FILE = "$(SRCROOT)/App/Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 9.3;
 				LD_NO_PIE = NO;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				LIBRARY_SEARCH_PATHS = "$(PROJECT_DIR)";
+				LIBRARY_SEARCH_PATHS = (
+					"$(PROJECT_DIR)",
+					"/Users/benjamin/Desktop/reprocessing-example-cross-platform/node_modules/ocaml-cross-mobile/ios-arm64/lib/ocaml",
+					"/Users/benjamin/Desktop/reprocessing-example-cross-platform/node_modules/reasongl-ios",
+					"/Users/benjamin/Desktop/reprocessing-example-cross-platform",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "com.jaredforsyth.reprocessing-example";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -297,15 +346,24 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = B79F793LZ6;
+				DEVELOPMENT_TEAM = M544ZWZGJ6;
 				ENABLE_BITCODE = NO;
 				GCC_DYNAMIC_NO_PIC = NO;
-				HEADER_SEARCH_PATHS = "\"~/.ocaml-cross-mobile/ios-x86_64/lib/ocaml/caml\"";
+				GCC_PREPROCESSOR_DEFINITIONS = "CAML_NAME_SPACE=1";
+				HEADER_SEARCH_PATHS = (
+					"/Users/benjamin/Desktop/reprocessing-example-cross-platform/node_modules/ocaml-cross-mobile/ios-arm64/lib/ocaml",
+					"/Users/benjamin/Desktop/reprocessing-example-cross-platform/node_modules/reasongl-ios/ios",
+				);
 				INFOPLIST_FILE = "$(SRCROOT)/App/Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 9.3;
 				LD_NO_PIE = NO;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				LIBRARY_SEARCH_PATHS = "$(PROJECT_DIR)";
+				LIBRARY_SEARCH_PATHS = (
+					"$(PROJECT_DIR)",
+					"/Users/benjamin/Desktop/reprocessing-example-cross-platform/node_modules/ocaml-cross-mobile/ios-arm64/lib/ocaml",
+					"/Users/benjamin/Desktop/reprocessing-example-cross-platform/node_modules/reasongl-ios",
+					"/Users/benjamin/Desktop/reprocessing-example-cross-platform",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "com.jaredforsyth.reprocessing-example";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
