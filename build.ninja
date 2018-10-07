@@ -1,0 +1,67 @@
+src_root_dir = /Users/benjamin/Desktop/reprocessing-example-cross-platform
+ocaml_dir = ${src_root_dir}/node_modules/ocaml-cross-mobile/ios-arm64
+ocamlrun = ${ocaml_dir}/bin/ocamlrun
+ocamlopt = ${ocaml_dir}/bin/ocamlopt
+ocamllib = ${ocaml_dir}/lib/ocaml
+
+bsc = /Users/benjamin/Desktop/reprocessing/node_modules/bsb-native/lib/bsc.exe
+refmt = /Users/benjamin/Desktop/reprocessing/node_modules/bsb-native/lib/refmt.exe
+refmt_flags = --print binary
+reason_react_jsx = 
+ppx_flags = -ppx /Users/benjamin/Desktop/reprocessing/node_modules/bsb-native/lib/belt_bsppx.exe
+bs_super_errors = -bs-super-errors
+warnings = -w -30-40+6+7+27+32..39+44+45+101
+bsc_flags = -bs-D BSB_BACKEND="bytecode" -bs-D OS_TYPE="Darwin" -nostdlib -I ${ocamllib} -color always -no-alias-deps
+
+bsdep = /Users/benjamin/Desktop/reprocessing/node_modules/bsb-native/lib/bsb_helper.exe
+namespace = 
+bsb_dir_group = 0
+
+bs_package_includes = -I ${src_root_dir}/node_modules/reprocessing/lib/bs/ios/src -I ${src_root_dir}/node_modules/reasongl-ios/lib/bs/ios/src
+bs_package_dev_includes = 
+ocaml_lib_includes = -I ${ocamllib} -I lib/bs/ios/src
+
+ocaml_flags = -thread   -no-alias-deps
+
+rule build_ast_and_module_sets_from_re_gen_simple
+  command = ${bsc} -pp "${refmt} ${refmt_flags}" ${reason_react_jsx}  ${ppx_flags} ${bs_super_errors} ${warnings} ${bsc_flags} -c -o ${out} -bs-syntax-only -bs-simple-binary-ast -bs-binary-ast -impl ${in}
+  description = [34mBuilding[39m [2m${out}[22m
+
+# build lib/bs/ios/src/ios.mlast : build_ast_and_module_sets_from_re_gen_simple ${src_root_dir}/src/ios.re
+build lib/bs/ios/src/Game.mlast : build_ast_and_module_sets_from_re_gen_simple ${src_root_dir}/src/Game.re
+
+# rule build_deps_bytecode
+#   command = ${bsdep} ${namespace} -g ${bsb_dir_group} -MD-bytecode ${in}
+#   description = [34mBuilding[39m [2m${out}[22m
+# build lib/bs/ios/src/ios.mlast.d : build_deps_bytecode lib/bs/ios/src/ios.mlast
+#   bsb_dir_group = 1
+# build lib/bs/ios/src/Game.mlast.d : build_deps_bytecode lib/bs/ios/src/Game.mlast
+#   bsb_dir_group = 1
+
+rule build_cmo_cmi_bytecode
+  command = ${ocamlrun} ${ocamlopt} ${bs_package_includes} ${ocaml_lib_includes} ${bsc_extra_includes} ${ocaml_flags} -o ${out} ${warnings} -output-obj -g -intf-suffix .mliast_simple bigarray.cmxa ${src_root_dir}/node_modules/reasongl-ios/lib/bs/ios/lib.cmxa ${src_root_dir}/node_modules/reprocessing/lib/bs/ios/lib.cmxa -impl ${in}_simple -cclib -lasmrun -ccopt -lasmrun -cclib -static -ccopt -arch -ccopt arm64 -ccopt -isysroot -ccopt /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk -ccopt -isystem -ccopt /Users/benjamin/Desktop/reprocessing-example-cross-platform/node_modules/ocaml-cross-mobile/ios-arm64/lib/ocaml -ccopt -DCAML_NAME_SPACE
+  description = [34mBuilding[39m [2m${out}[22m
+
+build lib/bs/ios/src/Game.o |  lib/bs/ios/src/Game.cmi : build_cmo_cmi_bytecode lib/bs/ios/src/Game.mlast | ${src_root_dir}/node_modules/reasongl-ios/lib/bs/ios/lib.cmxa ${src_root_dir}/node_modules/reprocessing/lib/bs/ios/lib.cmxa
+  bsc_flags = $bsc_flags -bs-re-out -bs-super-errors
+  bs_package_includes = $bs_package_includes $bs_package_dev_includes
+
+# rule ar_this_shit
+#   command = cp ${ocamllib}/libasmrun.a libeverything.a && cp ${ocamllib}/libbigarray.a test/ && cd test && ar -x libbigarray.a && cd .. && ar -r libeverything.a test/*.o ${in}
+
+# build libeverything.a : ar_this_shit  lib/bs/ios/src/Game.o | ${ocamllib}/libasmrun.a ${ocamllib}/libbigarray.a
+
+
+# rule build_objc
+#   command = /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -arch arm64 -isysroot /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk -isystem /Users/benjamin/Desktop/reprocessing-example-cross-platform/node_modules/ocaml-cross-mobile/ios-arm64/lib/ocaml -DCAML_NAME_SPACE -I/Users/benjamin/Desktop/reprocessing-example-cross-platform/node_modules/ocaml-cross-mobile/ios-arm64/lib/ocaml/caml -fno-objc-arc -miphoneos-version-min=7.0 -c -std=c11 ${in} -I /Users/benjamin/Desktop/reprocessing/node_modules/reasongl-ios/ios -o ${out}
+
+# build /Users/benjamin/Desktop/reprocessing-example-cross-platform/main.o : build_objc /Users/benjamin/Desktop/reprocessing-example-cross-platform/ios/App/main.m
+
+# build /Users/benjamin/Desktop/reprocessing-example-cross-platform/AppDelegate.o : build_objc /Users/benjamin/Desktop/reprocessing-example-cross-platform/ios/App/AppDelegate.m
+
+# rule link_everything
+#   command = /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -arch arm64 -isysroot /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS12.1.sdk -L/Users/benjamin/Desktop/reprocessing-example-cross-platform/ios/_build/Debug-iphoneos -L/Users/benjamin/Desktop/reprocessing-example-cross-platform/ios -L/Users/benjamin/Desktop/reprocessing-example-cross-platform/node_modules/reasongl-ios/lib/bs/native -L/Users/benjamin/Desktop/reprocessing-example-cross-platform/node_modules/reprocessing/lib/bs/native -F/Users/benjamin/Desktop/reprocessing-example-cross-platform/ios/_build/Debug-iphoneos ${in} -Xlinker -rpath -Xlinker @executable_path/Frameworks -miphoneos-version-min=9.3 -dead_strip -Xlinker -object_path_lto -Xlinker /Users/benjamin/Desktop/reprocessing-example-cross-platform/ios/_build/App.build/Debug-iphoneos/App.build/Objects-normal/arm64/App_lto.o -Xlinker -export_dynamic -Xlinker -no_deduplicate -fobjc-arc -fobjc-link-runtime -o /Users/benjamin/Desktop/reprocessing-example-cross-platform/App.app/App
+
+# build App.app : link_everything /Users/benjamin/Desktop/reprocessing-example-cross-platform/main.o /Users/benjamin/Desktop/reprocessing-example-cross-platform/AppDelegate.o lib/bs/ios/src/Game.o  ${ocaml_dir}/lib/ocaml/libasmrun.a /Users/benjamin/Desktop/reprocessing-example-cross-platform/node_modules/reasongl-ios/CBindings.o /Users/benjamin/Desktop/reprocessing-example-cross-platform/node_modules/reasongl-ios/CTgls.o /Users/benjamin/Desktop/reprocessing-example-cross-platform/node_modules/reasongl-ios/reprocessing.o ${ocaml_dir}/lib/ocaml/libbigarray.a ${ocaml_dir}/lib/ocaml/libthreads.a
+
+# /Users/benjamin/Desktop/reprocessing-example-cross-platform/node_modules/reasongl-ios/CBindings.o /Users/benjamin/Desktop/reprocessing-example-cross-platform/node_modules/reasongl-ios/Reprocessing.o /Users/benjamin/Desktop/reprocessing-example-cross-platform/node_modules/reasongl-ios/CTgls.o /Users/benjamin/Desktop/reprocessing-example-cross-platform/node_modules/reasongl-ios/CBigarray.o

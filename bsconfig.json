@@ -8,9 +8,11 @@
   "sources": [
     "src"
   ],
-  "bs-dependencies": ["@jaredly/reprocessing"],
-  "package-specs": ["commonjs", "es6"],
-  "entries": [{
+  "bs-dependencies": ["reprocessing"],
+  "package-specs": ["es6"],
+  "entries": [
+    {"backend": "ios", "main-module": "Ios"},
+    {
     "backend": "bytecode",
     "main-module": "Indexhot",
   },{
@@ -18,7 +20,7 @@
     "main-module": "Dev",
   },{
     "backend": "native",
-    "main-module": "Prod",
+    "main-module": "Dev",
   },{
     "backend": "js",
     "main-module": "Web"
