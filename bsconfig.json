@@ -9,21 +9,19 @@
     "src"
   ],
   "bs-dependencies": ["reprocessing"],
+  "ocaml-dependencies": ["bigarray", "unix", 
+    // "dynlink"
+  ],
   "package-specs": ["es6"],
-  "entries": [
-    {"backend": "ios", "main-module": "Ios"},
-    {
+  "entries": [{
     "backend": "bytecode",
-    "main-module": "Indexhot",
-  },{
-    "backend": "bytecode",
-    "main-module": "Dev",
-  },{
+    "main-module": "IndexHot",
+  }, {
+    "backend": "ios",
+    "main-module": "Ios"
+  }, {
     "backend": "native",
     "main-module": "Dev",
-  },{
-    "backend": "js",
-    "main-module": "Web"
   }],
   "icon": "./icons/icon.png",
   "appName": "CamlQuest",

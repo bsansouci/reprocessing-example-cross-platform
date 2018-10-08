@@ -16,6 +16,6 @@
   },
   "dependencies": {
     "ios-deploy": "^1.9.3",
-    "reprocessing": "bsansouci/reprocessing#ios"
+    "reprocessing": "schmavery/reprocessing#ios"
   }
 }

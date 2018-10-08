@@ -7,6 +7,13 @@ type aimT =
   | Aiming(int, int)
   | Moving((float, float), (float, float), float);
 
+type bulletT = {
+  x: float,
+  y: float,
+  vx: float,
+  vy: float,
+};
+
 type state = {
   x: float,
   y: float,
@@ -14,6 +21,7 @@ type state = {
   stuff: array((int, int)),
   bg: imageT,
   assetMap: AssetMap.t(imageT),
+  bullets: list(bulletT),
 };
 
 let drawWithRotation = (img, ~pos as (x, y), ~height, ~width, ~rot, env) => {
@@ -57,9 +65,14 @@ let loadAssetMap = (env, possibleFruits) => {
 };
 
 let setup = (size, assetDir, env) => {
-  switch size {
+  switch (size) {
   | `InitialSize => ()
-  | `FullScreen => Env.size(~width=Env.displayWidth(env), ~height=Env.displayHeight(env), env)
+  | `FullScreen =>
+    Env.size(
+      ~width=Env.displayWidth(env),
+      ~height=Env.displayHeight(env),
+      env,
+    )
   | `Normal => Env.size(~width=500, ~height=500, env)
   };
   {
@@ -75,6 +88,7 @@ let setup = (size, assetDir, env) => {
       ),
     bg: Draw.loadImage(~filename="./assets/background.png", env),
     assetMap: loadAssetMap(env, possibleFruits),
+    bullets: [],
   };
 };
 
@@ -94,6 +108,7 @@ let draw = (state, env) => {
     ~y=halfWindowHf -. playerSizef -. state.y,
     env,
   );
+
   Array.iter(
     ((x, y)) =>
       Draw.image(
@@ -102,6 +117,23 @@ let draw = (state, env) => {
         env,
       ),
     state.stuff,
+  );
+
+  List.iter(
+    ({x, y, vx, vy}: bulletT) => {
+      Draw.pushMatrix(env);
+      Draw.translate(~x=x -. 6., ~y=y -. 1., env);
+      Draw.rotate(
+        vy > 0. ?
+          acos(vx /. sqrt(vx *. vx +. vy *. vy)) :
+          Constants.pi /. 2. +. asin(vx /. sqrt(vx *. vx +. vy *. vy)),
+        env,
+      );
+      Draw.stroke(Constants.black, env);
+      Draw.ellipsef(~center=(0., 0.), ~radx=12., ~rady=2., env);
+      Draw.popMatrix(env);
+    },
+    state.bullets,
   );
   Draw.popMatrix(env);
   Draw.image(
@@ -137,6 +169,19 @@ let draw = (state, env) => {
   | _ => ()
   };
 
+  let state = {
+    ...state,
+    bullets:
+      List.fold_left(
+        (acc, {x, y, vx, vy} as bullet: bulletT) => [
+          {...bullet, x: x +. vx, y: y +. vy},
+          ...acc,
+        ],
+        [],
+        state.bullets,
+      ),
+  };
+
   let state =
     switch (state.aim, Env.mousePressed(env)) {
     | (Aiming(_), true) /* Draw the arrow */
@@ -157,6 +202,15 @@ let draw = (state, env) => {
               (state.x -. moveX, state.y -. moveY),
               moveTime,
             ),
+          bullets: [
+            {
+              x: state.x -. dx /. mag *. playerSizef +. playerSizef,
+              y: state.y -. dy /. mag *. playerSizef +. playerSizef,
+              vx: -. dx /. mag *. 10.,
+              vy: -. dy /. mag *. 10.,
+            },
+            ...state.bullets,
+          ],
         };
       } else {
         {...state, aim: Nothing};
@@ -176,6 +230,7 @@ let draw = (state, env) => {
         y: Utils.lerpf(~low=destY, ~high=startY, ~value=lerpAmt),
       };
     };
+
   let state =
     if (Env.key(Down, env)) {
       {...state, y: state.y +. 10.};
@@ -187,5 +242,10 @@ let draw = (state, env) => {
   state;
 };
 
-
-let run = (size, assetDir) => Reprocessing.run(~setup=setup(size, assetDir), ~draw, ~screen="FightyFruity", ());
+let run = (size, assetDir) =>
+  Reprocessing.run(
+    ~setup=setup(size, assetDir),
+    ~draw,
+    ~screen="FightyFruity",
+    (),
+  );
