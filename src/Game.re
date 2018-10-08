@@ -14,11 +14,20 @@ type bulletT = {
   vy: float,
 };
 
+type splashT = {
+  x: int,
+  y: int,
+  rotation: float,
+  width: int,
+  height: int,
+};
+
 type state = {
   x: float,
   y: float,
   aim: aimT,
   stuff: list((int, int)),
+  splashes: list(splashT),
   bg: imageT,
   assetMap: AssetMap.t(imageT),
   bullets: list(bulletT),
@@ -26,7 +35,7 @@ type state = {
 
 let drawWithRotation = (img, ~pos as (x, y), ~height, ~width, ~rot, env) => {
   Draw.pushMatrix(env);
-  Draw.translate(~x, ~y, env);
+  Draw.translate(~x=float_of_int(x), ~y=float_of_int(y), env);
   Draw.rotate(rot, env);
   Draw.translate(
     ~x=float_of_int(width) /. (-2.),
@@ -38,14 +47,13 @@ let drawWithRotation = (img, ~pos as (x, y), ~height, ~width, ~rot, env) => {
 };
 
 let initList = (size, func) => {
-  let rec loop = (sizeLeft, li) => {
+  let rec loop = (sizeLeft, li) =>
     if (sizeLeft == 0) {
-      li
+      li;
     } else {
-      loop(sizeLeft - 1, [func(), ...li])
-    }
-  };
-  loop(size, [])
+      loop(sizeLeft - 1, [func(), ...li]);
+    };
+  loop(size, []);
 };
 
 let splitListAt = (li, index) => {
@@ -67,7 +75,7 @@ let splitListAt = (li, index) => {
   loop([], li, 0);
 };
 
-let bulletCollidesWithPineapple = ({x, y} : bulletT, pineapples) => {
+let bulletCollidesWithPineapple = ({x, y}: bulletT, pineapples) => {
   let rec loop = (pinesapplesRemaining, index) =>
     switch (pinesapplesRemaining) {
     | [] => None
@@ -106,6 +114,10 @@ let loadAssetMap = (env, possibleFruits) => {
         possibleFruits,
       ),
     );
+  let files = [
+    ("./assets/splash_yellow_small.png", "splash_yellow"),
+    ...files,
+  ];
   List.fold_left(
     (assetMap, (filename, name)) =>
       AssetMap.add(name, Draw.loadImage(~filename, env), assetMap),
@@ -139,6 +151,7 @@ let setup = (size, assetDir, env) => {
     bg: Draw.loadImage(~filename="./assets/background.png", env),
     assetMap: loadAssetMap(env, possibleFruits),
     bullets: [],
+    splashes: [],
   };
 };
 
@@ -160,10 +173,26 @@ let draw = (state, env) => {
   );
 
   List.iter(
-    ((x, y)) =>
-      Draw.image(
-        AssetMap.find("pineapple", state.assetMap),
+    ({x, y, width, height, rotation}) =>
+      drawWithRotation(
+        AssetMap.find("splash_yellow", state.assetMap),
         ~pos=(x, y),
+        ~width,
+        ~height,
+        ~rot=rotation,
+        env,
+      ),
+    state.splashes,
+  );
+
+  List.iter(
+    pos =>
+      drawWithRotation(
+        AssetMap.find("pineapple", state.assetMap),
+        ~pos,
+        ~width=54,
+        ~height=74,
+        ~rot=0.,
         env,
       ),
     state.stuff,
@@ -219,6 +248,7 @@ let draw = (state, env) => {
   | _ => ()
   };
 
+  /* Bullet collision detection and response */
   let state =
     List.fold_left(
       (state, {x, y, vx, vy} as bullet: bulletT) =>
@@ -228,10 +258,23 @@ let draw = (state, env) => {
             bullets: [{...bullet, x: x +. vx, y: y +. vy}, ...state.bullets],
           }
         | Some(index) =>
-        switch (splitListAt(state.stuff, index)) {
-        | (headList, [_, ...restOfTail]) => {...state, stuff: headList @ restOfTail};
-        | _ => assert(false)
-        }
+          switch (splitListAt(state.stuff, index)) {
+          | (headList, [(px, py), ...restOfTail]) => {
+              ...state,
+              stuff: headList @ restOfTail,
+              splashes: [
+                {
+                  x: px,
+                  y: py,
+                  width: Utils.random(40, 64),
+                  height: Utils.random(40, 64),
+                  rotation: Utils.randomf(0., Constants.pi),
+                },
+                ...state.splashes,
+              ],
+            }
+          | _ => assert(false)
+          }
         },
       {...state, bullets: []},
       state.bullets,
