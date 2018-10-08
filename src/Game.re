@@ -18,7 +18,7 @@ type state = {
   x: float,
   y: float,
   aim: aimT,
-  stuff: array((int, int)),
+  stuff: list((int, int)),
   bg: imageT,
   assetMap: AssetMap.t(imageT),
   bullets: list(bulletT),
@@ -35,6 +35,56 @@ let drawWithRotation = (img, ~pos as (x, y), ~height, ~width, ~rot, env) => {
   );
   Draw.image(img, ~pos=(0, 0), ~height, ~width, env);
   Draw.popMatrix(env);
+};
+
+let initList = (size, func) => {
+  let rec loop = (sizeLeft, li) => {
+    if (sizeLeft == 0) {
+      li
+    } else {
+      loop(sizeLeft - 1, [func(), ...li])
+    }
+  };
+  loop(size, [])
+};
+
+let splitListAt = (li, index) => {
+  let rec loop = (headList, tailList, i) =>
+    switch (tailList) {
+    | [] =>
+      if (i == index) {
+        (List.rev(headList), tailList);
+      } else {
+        invalid_arg("index was too big for the given list");
+      }
+    | [el, ...restOfTail] =>
+      if (i == index) {
+        (List.rev(headList), tailList);
+      } else {
+        loop([el, ...headList], restOfTail, i + 1);
+      }
+    };
+  loop([], li, 0);
+};
+
+let bulletCollidesWithPineapple = ({x, y} : bulletT, pineapples) => {
+  let rec loop = (pinesapplesRemaining, index) =>
+    switch (pinesapplesRemaining) {
+    | [] => None
+    | [(px, py), ...restOfPineapples] =>
+      if (Utils.intersectRectCircle(
+            ~rectPos=(float_of_int(px), float_of_int(py)),
+            ~rectW=64.,
+            ~rectH=64.,
+            ~circlePos=(x, y),
+            ~circleRad=4.,
+          )) {
+        Some(index);
+      } else {
+        loop(restOfPineapples, index + 1);
+      }
+    };
+  loop(pineapples, 0);
 };
 
 let moveSpeed = 60.;
@@ -80,7 +130,7 @@ let setup = (size, assetDir, env) => {
     y: 0.,
     aim: Nothing,
     stuff:
-      Array.init(100, _ =>
+      initList(100, _ =>
         (
           Utils.random(~min=-1000, ~max=100),
           Utils.random(~min=-1000, ~max=1000),
@@ -109,7 +159,7 @@ let draw = (state, env) => {
     env,
   );
 
-  Array.iter(
+  List.iter(
     ((x, y)) =>
       Draw.image(
         AssetMap.find("pineapple", state.assetMap),
@@ -169,18 +219,23 @@ let draw = (state, env) => {
   | _ => ()
   };
 
-  let state = {
-    ...state,
-    bullets:
-      List.fold_left(
-        (acc, {x, y, vx, vy} as bullet: bulletT) => [
-          {...bullet, x: x +. vx, y: y +. vy},
-          ...acc,
-        ],
-        [],
-        state.bullets,
-      ),
-  };
+  let state =
+    List.fold_left(
+      (state, {x, y, vx, vy} as bullet: bulletT) =>
+        switch (bulletCollidesWithPineapple(bullet, state.stuff)) {
+        | None => {
+            ...state,
+            bullets: [{...bullet, x: x +. vx, y: y +. vy}, ...state.bullets],
+          }
+        | Some(index) =>
+        switch (splitListAt(state.stuff, index)) {
+        | (headList, [_, ...restOfTail]) => {...state, stuff: headList @ restOfTail};
+        | _ => assert(false)
+        }
+        },
+      {...state, bullets: []},
+      state.bullets,
+    );
 
   let state =
     switch (state.aim, Env.mousePressed(env)) {
