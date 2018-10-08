@@ -25,3 +25,6 @@ keystore.properties
 public/assets
 android/app/src/main/assets
 CamlQuest.app
+App
+App.xcodeproj
+App.xcworkspace
