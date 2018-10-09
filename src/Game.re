@@ -1,3 +1,5 @@
+let _NUMBER_OF_EXPERIMENTS = 2;
+
 /* The idea with this is that currently the rotation amount of the aiming line depends on how far
    the touch has moved from its start position.
    Say you start your touch at 300, 300, and you move straight up by 100pt.
@@ -37,7 +39,7 @@ module AssetMap = Map.Make(String);
 
 type aimT =
   | Nothing
-  | Aiming(int, int, list((int, int)))
+  | Aiming(float, float, list((float, float)))
   | Moving((float, float), (float, float), float);
 
 type bulletT = {
@@ -124,9 +126,9 @@ let bulletCollidesWithPineapple = ({x, y}: bulletT, pineapples) => {
   let rec loop = (pinesapplesRemaining, index) =>
     switch (pinesapplesRemaining) {
     | [] => None
-    | [(px, py), ...restOfPineapples] =>
+    | [(sx, sy), ...restOfPineapples] =>
       if (Utils.intersectRectCircle(
-            ~rectPos=(float_of_int(px), float_of_int(py)),
+            ~rectPos=(float_of_int(sx), float_of_int(sy)),
             ~rectW=64.,
             ~rectH=64.,
             ~circlePos=(x, y),
@@ -279,24 +281,11 @@ let draw = (state, env) => {
   );
 
   let (mx, my) = Env.mouse(env);
+  let (mx, my) = (float_of_int(mx), float_of_int(my));
   switch (state.aim, Env.mousePressed(env)) {
   | (Aiming(px, py, points), true) =>
-    let dx = float_of_int(px - mx);
-    let dy = float_of_int(py - my);
-
-    let (dx, dy) =
-      if (state.experiment == _EXPERIMENT_CAPPED_AIMING) {
-        let mag = sqrt(dx *. dx +. dy *. dy);
-        if (mag > 20.) {
-          let dx = dx /. mag *. 50.;
-          let dy = dy /. mag *. 50.;
-          (dx, dy);
-        } else {
-          (dx, dy);
-        };
-      } else {
-        (dx, dy);
-      };
+    let dx = px -. mx;
+    let dy = py -. my;
 
     let (dx, dy) =
       if (state.experiment == _EXPERIMENT_PATH_AIMING) {
@@ -315,8 +304,8 @@ let draw = (state, env) => {
           let (dx, dy, _) =
             List.fold_left(
               ((dx, dy, i), (x, y)) => (
-                dx +. float_of_int(px - x) *. i /. lenf,
-                dy +. float_of_int(py - y) *. i /. lenf,
+                dx +. px -. (x) *. i /. lenf,
+                dy +. py -. (y) *. i /. lenf,
                 i -. 1.,
               ),
               (0., 0., lenf),
@@ -336,8 +325,8 @@ let draw = (state, env) => {
       Draw.strokeWeight(1, env);
       Draw.stroke(Constants.red, env);
       Draw.linef(
-        ~p1=(halfWindowWf, halfWindowHf),
-        ~p2=(halfWindowWf -. moveX *. 100., halfWindowHf -. moveY *. 100.),
+        ~p1=(px, py),
+        ~p2=(mx, my),
         env,
       );
       Draw.popStyle(env);
@@ -383,40 +372,32 @@ let draw = (state, env) => {
     );
 
   let state =
-    if (state.prevMouseState && !Env.mousePressed(env) && mx < 100 && my < 100) {
+    if (state.prevMouseState && !Env.mousePressed(env) && mx < 100. && my < 100.) {
       {
         ...state,
-        experiment:
-          state.experiment == _EXPERIMENT_CAPPED_AIMING ?
-            _EXPERIMENT_PATH_AIMING :
-            state.experiment == _EXPERIMENT_PATH_AIMING ?
-              0 : _EXPERIMENT_CAPPED_AIMING,
+        experiment: (state.experiment + 1) mod (_NUMBER_OF_EXPERIMENTS + 1),
       };
     } else {
       switch (state.aim, Env.mousePressed(env)) {
-      | (Aiming(sx, sy, points), true) => {
-          ...state,
-          aim: Aiming(sx, sy, [(mx, my), ...points]),
-        }
+      | (Aiming(sx, sy, points), true) =>
+        let dx = sx -. mx;
+        let dy = sy -. my;
+        let mag = sqrt(dx *. dx +. dy *. dy);
+        let (sx, sy) =
+          if (state.experiment == _EXPERIMENT_CAPPED_AIMING && mag > 50.) {
+            (
+              mx +. dx /. mag *. 50.,
+              my +. dy /. mag *. 50.,
+            );
+          } else {
+            (sx, sy);
+          };
+        {...state, aim: Aiming(sx, sy, [(mx, my), ...points])};
       | (Nothing, false) => state
       | (Nothing, true) => {...state, aim: Aiming(mx, my, [])}
-      | (Aiming(px, py, points), false) =>
-        let dx = float_of_int(px - mx);
-        let dy = float_of_int(py - my);
-
-        let (dx, dy) =
-          if (state.experiment == _EXPERIMENT_CAPPED_AIMING) {
-            let mag = sqrt(dx *. dx +. dy *. dy);
-            if (mag > 20.) {
-              let dx = dx /. mag *. 50.;
-              let dy = dy /. mag *. 50.;
-              (dx, dy);
-            } else {
-              (dx, dy);
-            };
-          } else {
-            (dx, dy);
-          };
+      | (Aiming(sx, sy, points), false) =>
+        let dx = sx -. mx;
+        let dy = sy -. my;
 
         let (dx, dy) =
           if (state.experiment == _EXPERIMENT_PATH_AIMING) {
@@ -435,8 +416,8 @@ let draw = (state, env) => {
               let (dx, dy, _) =
                 List.fold_left(
                   ((dx, dy, i), (x, y)) => (
-                    dx +. float_of_int(px - x) *. i /. lenf,
-                    dy +. float_of_int(py - y) *. i /. lenf,
+                    dx *. 0.05 +. (sx -. x) *. 0.95,
+                    dy *. 0.05 +. (sy -. y) *. 0.95,
                     i -. 1.,
                   ),
                   (0., 0., lenf),
