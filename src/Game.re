@@ -1,3 +1,5 @@
+let _DEBUG = true;
+
 let _NUMBER_OF_EXPERIMENTS = 2;
 
 /* The idea with this is that currently the rotation amount of the aiming line depends on how far
@@ -304,8 +306,8 @@ let draw = (state, env) => {
           let (dx, dy, _) =
             List.fold_left(
               ((dx, dy, i), (x, y)) => (
-                dx +. px -. (x) *. i /. lenf,
-                dy +. py -. (y) *. i /. lenf,
+                dx +. px -. x *. i /. lenf,
+                dy +. py -. y *. i /. lenf,
                 i -. 1.,
               ),
               (0., 0., lenf),
@@ -324,9 +326,12 @@ let draw = (state, env) => {
       Draw.pushStyle(env);
       Draw.strokeWeight(1, env);
       Draw.stroke(Constants.red, env);
+      if (_DEBUG) {
+        Draw.linef(~p1=(px, py), ~p2=(mx, my), env);
+      };
       Draw.linef(
-        ~p1=(px, py),
-        ~p2=(mx, my),
+        ~p1=(halfWindowWf, halfWindowHf),
+        ~p2=(halfWindowWf -. moveX *. 100., halfWindowHf -. moveY *. 100.),
         env,
       );
       Draw.popStyle(env);
@@ -372,7 +377,10 @@ let draw = (state, env) => {
     );
 
   let state =
-    if (state.prevMouseState && !Env.mousePressed(env) && mx < 100. && my < 100.) {
+    if (state.prevMouseState
+        && !Env.mousePressed(env)
+        && mx < 100.
+        && my < 100.) {
       {
         ...state,
         experiment: (state.experiment + 1) mod (_NUMBER_OF_EXPERIMENTS + 1),
@@ -385,10 +393,7 @@ let draw = (state, env) => {
         let mag = sqrt(dx *. dx +. dy *. dy);
         let (sx, sy) =
           if (state.experiment == _EXPERIMENT_CAPPED_AIMING && mag > 50.) {
-            (
-              mx +. dx /. mag *. 50.,
-              my +. dy /. mag *. 50.,
-            );
+            (mx +. dx /. mag *. 50., my +. dy /. mag *. 50.);
           } else {
             (sx, sy);
           };
