@@ -285,32 +285,25 @@ let draw = (state, env) => {
   let (mx, my) = Env.mouse(env);
   let (mx, my) = (float_of_int(mx), float_of_int(my));
   switch (state.aim, Env.mousePressed(env)) {
-  | (Aiming(px, py, points), true) =>
-    let dx = px -. mx;
-    let dy = py -. my;
+  | (Aiming(sx, sy, points), true) =>
+    let dx = sx -. mx;
+    let dy = sy -. my;
 
     let (dx, dy) =
       if (state.experiment == _EXPERIMENT_PATH_AIMING) {
         let len = List.length(points);
-        if (len > 10) {
-          let mag = sqrt(dx *. dx +. dy *. dy);
-          if (mag > 20.) {
-            let dx = dx /. mag *. 50.;
-            let dy = dy /. mag *. 50.;
-            (dx, dy);
-          } else {
-            (dx, dy);
-          };
+        let maxNumberOfPointsInSwipe = 10;
+        if (len > maxNumberOfPointsInSwipe) {
+          (dx, dy);
         } else {
-          let lenf = float_of_int(len);
-          let (dx, dy, _) =
+          let ratio = 0.5;
+          let (dx, dy) =
             List.fold_left(
-              ((dx, dy, i), (x, y)) => (
-                dx +. px -. x *. i /. lenf,
-                dy +. py -. y *. i /. lenf,
-                i -. 1.,
+              ((dx, dy), (x, y)) => (
+                dx *. (1. -. ratio) +. (sx -. x) *. ratio,
+                dy *. (1. -. ratio) +. (sy -. y) *. ratio,
               ),
-              (0., 0., lenf),
+              (0., 0.),
               points,
             );
           (dx, dy);
@@ -320,14 +313,14 @@ let draw = (state, env) => {
       };
 
     let mag = sqrt(dx *. dx +. dy *. dy);
-    if (mag > 20.) {
+    if (mag > 20. || state.experiment == _EXPERIMENT_PATH_AIMING && mag > 4.) {
       let moveX = dx /. mag *. moveSpeed;
       let moveY = dy /. mag *. moveSpeed;
       Draw.pushStyle(env);
       Draw.strokeWeight(1, env);
       Draw.stroke(Constants.red, env);
       if (_DEBUG) {
-        Draw.linef(~p1=(px, py), ~p2=(mx, my), env);
+        Draw.linef(~p1=(sx, sy), ~p2=(mx, my), env);
       };
       Draw.linef(
         ~p1=(halfWindowWf, halfWindowHf),
@@ -407,25 +400,18 @@ let draw = (state, env) => {
         let (dx, dy) =
           if (state.experiment == _EXPERIMENT_PATH_AIMING) {
             let len = List.length(points);
-            if (len > 10) {
-              let mag = sqrt(dx *. dx +. dy *. dy);
-              if (mag > 20.) {
-                let dx = dx /. mag *. 50.;
-                let dy = dy /. mag *. 50.;
-                (dx, dy);
-              } else {
-                (dx, dy);
-              };
+            let maxNumberOfPointsInSwipe = 10;
+            if (len > maxNumberOfPointsInSwipe) {
+              (dx, dy);
             } else {
-              let lenf = float_of_int(len);
-              let (dx, dy, _) =
+              let ratio = 0.5;
+              let (dx, dy) =
                 List.fold_left(
-                  ((dx, dy, i), (x, y)) => (
-                    dx *. 0.05 +. (sx -. x) *. 0.95,
-                    dy *. 0.05 +. (sy -. y) *. 0.95,
-                    i -. 1.,
+                  ((dx, dy), (x, y)) => (
+                    dx *. (1. -. ratio) +. (sx -. x) *. ratio,
+                    dy *. (1. -. ratio) +. (sy -. y) *. ratio,
                   ),
-                  (0., 0., lenf),
+                  (0., 0.),
                   points,
                 );
               (dx, dy);
@@ -435,7 +421,9 @@ let draw = (state, env) => {
           };
 
         let mag = sqrt(dx *. dx +. dy *. dy);
-        if (mag > 20.) {
+        if (mag > 20.
+            || state.experiment == _EXPERIMENT_PATH_AIMING
+            && mag > 4.) {
           let destX = state.x -. dx /. mag *. moveSpeed;
           let destY = state.y -. dy /. mag *. moveSpeed;
           {
