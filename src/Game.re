@@ -1,10 +1,43 @@
+/* The idea with this is that currently the rotation amount of the aiming line depends on how far
+   the touch has moved from its start position.
+   Say you start your touch at 300, 300, and you move straight up by 100pt.
+               20pt
+              +-----+
+             |
+             |  100pt
+             |
+             |
+             + angle formed 0.19
+
+   Now if you move right 20pt, the angle formed is atan(20/100) = 0.19
+   If instead you had only moved up by 40pt, the angle formed would be atan(20/40) = 0.46
+   The angle is smaller the longer your finger travels away from the start position. That's confusing
+   because you can't easily see your start position nor can you properly estimate the relationship between the distance travel and the angle formed.
+   Solution: cap the distance of the vector made! So it's predictable.
+   */
+let _EXPERIMENT_CAPPED_AIMING = 1;
+
+/* Something I noticed while playing with the game was that it was kinda shitty to swipe quickly.
+   The main reason is that we're using the last touch position as the end of the destination
+   vector, but the last touch position is almost always off because of how I lift my finger off
+   the screen. I lift my finger very roughly and it moves the destination target a lot.
+
+   The simplest way to fix this is to make a quick gesture into a list of points, which we average
+   based on recency (the newest points have more influence on the direction than the older ones,
+   but doesn't fully influence the direction). We sum and multiply each points by i /
+   numberOfPoints.
+
+   This makes quick shots feel much better.
+   */
+let _EXPERIMENT_PATH_AIMING = 2;
+
 open Reprocessing;
 
 module AssetMap = Map.Make(String);
 
 type aimT =
   | Nothing
-  | Aiming(int, int)
+  | Aiming(int, int, list((int, int)))
   | Moving((float, float), (float, float), float);
 
 type bulletT = {
@@ -31,6 +64,8 @@ type state = {
   bg: imageT,
   assetMap: AssetMap.t(imageT),
   bullets: list(bulletT),
+  experiment: int,
+  prevMouseState: bool,
 };
 
 let drawWithRotation = (img, ~pos as (x, y), ~height, ~width, ~rot, env) => {
@@ -44,6 +79,16 @@ let drawWithRotation = (img, ~pos as (x, y), ~height, ~width, ~rot, env) => {
   );
   Draw.image(img, ~pos=(0, 0), ~height, ~width, env);
   Draw.popMatrix(env);
+};
+
+let dropLast = li => {
+  let rec loop = (newList, tailOldList) =>
+    switch (tailOldList) {
+    | [] => assert(false)
+    | [el] => newList
+    | [el, ...rest] => loop([el, ...newList], rest)
+    };
+  loop([], li);
 };
 
 let initList = (size, func) => {
@@ -152,6 +197,8 @@ let setup = (size, assetDir, env) => {
     assetMap: loadAssetMap(env, possibleFruits),
     bullets: [],
     splashes: [],
+    experiment: 0,
+    prevMouseState: false,
   };
 };
 
@@ -164,7 +211,13 @@ let draw = (state, env) => {
   let playerSize = 32;
   let playerSizef = 32.;
   /* Draw.image(state.bg, ~pos=(0, 0), env); */
-  Draw.background(Constants.white, env);
+  if (state.experiment == _EXPERIMENT_CAPPED_AIMING) {
+    Draw.background(Utils.color(220, 120, 120, 255), env);
+  } else if (state.experiment == _EXPERIMENT_PATH_AIMING) {
+    Draw.background(Utils.color(140, 220, 140, 255), env);
+  } else {
+    Draw.background(Constants.white, env);
+  };
   Draw.pushMatrix(env);
   Draw.translate(
     ~x=halfWindowWf -. playerSizef -. state.x,
@@ -198,6 +251,10 @@ let draw = (state, env) => {
     state.stuff,
   );
 
+  /* Draw the bullets.
+      Uses some super hacky angle calculation do draw bullets as ellipses pointing in the right
+      direction.
+     */
   List.iter(
     ({x, y, vx, vy}: bulletT) => {
       Draw.pushMatrix(env);
@@ -223,9 +280,54 @@ let draw = (state, env) => {
 
   let (mx, my) = Env.mouse(env);
   switch (state.aim, Env.mousePressed(env)) {
-  | (Aiming(px, py), true) =>
+  | (Aiming(px, py, points), true) =>
     let dx = float_of_int(px - mx);
     let dy = float_of_int(py - my);
+
+    let (dx, dy) =
+      if (state.experiment == _EXPERIMENT_CAPPED_AIMING) {
+        let mag = sqrt(dx *. dx +. dy *. dy);
+        if (mag > 20.) {
+          let dx = dx /. mag *. 50.;
+          let dy = dy /. mag *. 50.;
+          (dx, dy);
+        } else {
+          (dx, dy);
+        };
+      } else {
+        (dx, dy);
+      };
+
+    let (dx, dy) =
+      if (state.experiment == _EXPERIMENT_PATH_AIMING) {
+        let len = List.length(points);
+        if (len > 10) {
+          let mag = sqrt(dx *. dx +. dy *. dy);
+          if (mag > 20.) {
+            let dx = dx /. mag *. 50.;
+            let dy = dy /. mag *. 50.;
+            (dx, dy);
+          } else {
+            (dx, dy);
+          };
+        } else {
+          let lenf = float_of_int(len);
+          let (dx, dy, _) =
+            List.fold_left(
+              ((dx, dy, i), (x, y)) => (
+                dx +. float_of_int(px - x) *. i /. lenf,
+                dy +. float_of_int(py - y) *. i /. lenf,
+                i -. 1.,
+              ),
+              (0., 0., lenf),
+              points,
+            );
+          (dx, dy);
+        };
+      } else {
+        (dx, dy);
+      };
+
     let mag = sqrt(dx *. dx +. dy *. dy);
     if (mag > 20.) {
       let moveX = dx /. mag *. moveSpeed;
@@ -266,9 +368,9 @@ let draw = (state, env) => {
                 {
                   x: px,
                   y: py,
-                  width: Utils.random(40, 64),
-                  height: Utils.random(40, 64),
-                  rotation: Utils.randomf(0., Constants.pi),
+                  width: Utils.random(~min=40, ~max=64),
+                  height: Utils.random(~min=40, ~max=64),
+                  rotation: Utils.randomf(~min=0., ~max=Constants.pi),
                 },
                 ...state.splashes,
               ],
@@ -281,53 +383,113 @@ let draw = (state, env) => {
     );
 
   let state =
-    switch (state.aim, Env.mousePressed(env)) {
-    | (Aiming(_), true) /* Draw the arrow */
-    | (Nothing, false) => state
-    | (Nothing, true) => {...state, aim: Aiming(mx, my)}
-    | (Aiming(px, py), false) =>
-      let dx = float_of_int(px - mx);
-      let dy = float_of_int(py - my);
-      let mag = sqrt(dx *. dx +. dy *. dy);
-      if (mag > 20.) {
-        let moveX = dx /. mag *. moveSpeed;
-        let moveY = dy /. mag *. moveSpeed;
-        {
-          ...state,
-          aim:
-            Moving(
-              (state.x, state.y),
-              (state.x -. moveX, state.y -. moveY),
-              moveTime,
-            ),
-          bullets: [
-            {
-              x: state.x -. dx /. mag *. playerSizef +. playerSizef,
-              y: state.y -. dy /. mag *. playerSizef +. playerSizef,
-              vx: -. dx /. mag *. 10.,
-              vy: -. dy /. mag *. 10.,
-            },
-            ...state.bullets,
-          ],
-        };
-      } else {
-        {...state, aim: Nothing};
-      };
-    | (Moving(_prev, (destX, destY), time), _) when time <= 0. => {
-        ...state,
-        aim: Nothing,
-        x: destX,
-        y: destY,
-      }
-    | (Moving((startX, startY) as start, (destX, destY) as dest, time), _) =>
-      let lerpAmt = Utils.constrain(~amt=time /. moveTime, ~low=0., ~high=1.);
+    if (state.prevMouseState && !Env.mousePressed(env) && mx < 100 && my < 100) {
       {
         ...state,
-        aim: Moving(start, dest, time -. dt),
-        x: Utils.lerpf(~low=destX, ~high=startX, ~value=lerpAmt),
-        y: Utils.lerpf(~low=destY, ~high=startY, ~value=lerpAmt),
+        experiment:
+          state.experiment == _EXPERIMENT_CAPPED_AIMING ?
+            _EXPERIMENT_PATH_AIMING :
+            state.experiment == _EXPERIMENT_PATH_AIMING ?
+              0 : _EXPERIMENT_CAPPED_AIMING,
+      };
+    } else {
+      switch (state.aim, Env.mousePressed(env)) {
+      | (Aiming(sx, sy, points), true) => {
+          ...state,
+          aim: Aiming(sx, sy, [(mx, my), ...points]),
+        }
+      | (Nothing, false) => state
+      | (Nothing, true) => {...state, aim: Aiming(mx, my, [])}
+      | (Aiming(px, py, points), false) =>
+        let dx = float_of_int(px - mx);
+        let dy = float_of_int(py - my);
+
+        let (dx, dy) =
+          if (state.experiment == _EXPERIMENT_CAPPED_AIMING) {
+            let mag = sqrt(dx *. dx +. dy *. dy);
+            if (mag > 20.) {
+              let dx = dx /. mag *. 50.;
+              let dy = dy /. mag *. 50.;
+              (dx, dy);
+            } else {
+              (dx, dy);
+            };
+          } else {
+            (dx, dy);
+          };
+
+        let (dx, dy) =
+          if (state.experiment == _EXPERIMENT_PATH_AIMING) {
+            let len = List.length(points);
+            if (len > 10) {
+              let mag = sqrt(dx *. dx +. dy *. dy);
+              if (mag > 20.) {
+                let dx = dx /. mag *. 50.;
+                let dy = dy /. mag *. 50.;
+                (dx, dy);
+              } else {
+                (dx, dy);
+              };
+            } else {
+              let lenf = float_of_int(len);
+              let (dx, dy, _) =
+                List.fold_left(
+                  ((dx, dy, i), (x, y)) => (
+                    dx +. float_of_int(px - x) *. i /. lenf,
+                    dy +. float_of_int(py - y) *. i /. lenf,
+                    i -. 1.,
+                  ),
+                  (0., 0., lenf),
+                  points,
+                );
+              (dx, dy);
+            };
+          } else {
+            (dx, dy);
+          };
+
+        let mag = sqrt(dx *. dx +. dy *. dy);
+        if (mag > 20.) {
+          let destX = state.x -. dx /. mag *. moveSpeed;
+          let destY = state.y -. dy /. mag *. moveSpeed;
+          {
+            ...state,
+            aim: Moving((state.x, state.y), (destX, destY), moveTime),
+            bullets: [
+              {
+                x: state.x -. dx /. mag *. playerSizef +. playerSizef,
+                y: state.y -. dy /. mag *. playerSizef +. playerSizef,
+                vx: -. dx /. mag *. 10.,
+                vy: -. dy /. mag *. 10.,
+              },
+              ...state.bullets,
+            ],
+          };
+        } else {
+          {...state, aim: Nothing};
+        };
+      | (Moving(_prev, (destX, destY), time), _) when time <= 0. => {
+          ...state,
+          aim: Nothing,
+          x: destX,
+          y: destY,
+        }
+      | (
+          Moving((startX, startY) as start, (destX, destY) as dest, time),
+          _,
+        ) =>
+        let lerpAmt =
+          Utils.constrain(~amt=time /. moveTime, ~low=0., ~high=1.);
+        {
+          ...state,
+          aim: Moving(start, dest, time -. dt),
+          x: Utils.lerpf(~low=destX, ~high=startX, ~value=lerpAmt),
+          y: Utils.lerpf(~low=destY, ~high=startY, ~value=lerpAmt),
+        };
       };
     };
+
+  let state = {...state, prevMouseState: Env.mousePressed(env)};
 
   let state =
     if (Env.key(Down, env)) {
