@@ -1,56 +1,6 @@
 let _DEBUG = true;
 
-let _NUMBER_OF_EXPERIMENTS = 3;
-
-/* The idea with this is that currently the rotation amount of the aiming line depends on how far
-   the touch has moved from its start position.
-   Say you start your touch at 300, 300, and you move straight up by 100pt.
-               20pt
-              +-----+
-             |
-             |  100pt
-             |
-             |
-             + angle formed 0.19
-
-   Now if you move right 20pt, the angle formed is atan(20/100) = 0.19
-   If instead you had only moved up by 40pt, the angle formed would be atan(20/40) = 0.46
-   The angle is smaller the longer your finger travels away from the start position. That's
-   confusing because you can't easily see your start position nor can you properly estimate the
-   relationship between the distance travel and the angle formed.
-   Solution: Move the start position in the current direction, so it's always at a max distance
-   from the destination of X pt. This ensures the angle you form, relative to where you are and see
-   the aiming line, feels consistent.
-
-
-   Conclusion: pretty good!
-   */
-let _EXPERIMENT_CAPPED_AIMING = 1;
-
-/* Something I noticed while playing with the game was that it was kinda shitty to swipe quickly.
-   The main reason is that we're using the last touch position as the end of the destination
-   vector, but the last touch position is almost always off because of how I lift my finger off
-   the screen. I lift my finger very roughly and it moves the destination target a lot.
-
-   The simplest way to fix this is to make a quick gesture into a list of points, which we average
-   based on recency (the newest points have more influence on the direction than the older ones,
-   but doesn't fully influence the direction). We sum and multiply each points by i /
-   numberOfPoints.
-
-   This makes quick shots feel much better.
-
-
-   Conclusion: not conclusive.
-   */
-let _EXPERIMENT_PATH_AIMING = 2;
-
-/* Aim assist
-
-
-  TODO: measure amount of time spent aiming. Turn off auto-aim if it's too high.
-
- */
-let _EXPERIMENT_AIM_ASSIST = 3;
+let _NUMBER_OF_EXPERIMENTS = 1;
 
 open Reprocessing;
 
@@ -245,15 +195,8 @@ let draw = (state, env) => {
   let halfWindowHf = float_of_int(halfWindowH);
   let playerSize = 32;
   let playerSizef = 32.;
-  if (state.experiment == _EXPERIMENT_CAPPED_AIMING) {
-    Draw.background(Utils.color(220, 120, 120, 255), env);
-  } else if (state.experiment == _EXPERIMENT_PATH_AIMING) {
-    Draw.background(Utils.color(140, 220, 140, 255), env);
-  } else if (state.experiment == _EXPERIMENT_AIM_ASSIST) {
-    Draw.background(Utils.color(140, 140, 220, 255), env);
-  } else {
-    Draw.background(Constants.white, env);
-  };
+
+  Draw.background(Constants.white, env);
   Draw.pushMatrix(env);
   Draw.translate(~x=halfWindowWf -. state.x, ~y=halfWindowHf -. state.y, env);
 
@@ -327,73 +270,62 @@ let draw = (state, env) => {
   | (Aiming(sx, sy, points), true) =>
     let dx = sx -. mx;
     let dy = sy -. my;
-
-    let (dx, dy) =
-      if (state.experiment == _EXPERIMENT_PATH_AIMING) {
-        let len = List.length(points);
-        let maxNumberOfPointsInSwipe = 10;
-        if (len > maxNumberOfPointsInSwipe) {
-          (dx, dy);
-        } else {
-          let ratio = 0.5;
-          let (dx, dy) =
-            List.fold_left(
-              ((dx, dy), (x, y)) => (
-                dx *. (1. -. ratio) +. (sx -. x) *. ratio,
-                dy *. (1. -. ratio) +. (sy -. y) *. ratio,
-              ),
-              (0., 0.),
-              points,
-            );
-          (dx, dy);
-        };
-      } else {
-        (dx, dy);
-      };
-
-    let (dx, dy) =
-      if (state.experiment == _EXPERIMENT_AIM_ASSIST) {
-        let mag = sqrt(dx *. dx +. dy *. dy);
-
-        let (dx, dy, _) =
-          List.fold_left(
-            ((closestX, closestY, closestDot), (x, y)) => {
-              let xf = float_of_int(x);
-              let yf = float_of_int(y);
-
-              let (vecToFruitX, vecToFruitY) = (
-                state.x -. xf,
-                state.y -. yf,
-              );
-              let mag2 =
-                sqrt(
-                  vecToFruitX *. vecToFruitX +. vecToFruitY *. vecToFruitY,
-                );
-              let dot =
-                vecToFruitX
-                /. mag2
-                *. dx
-                /. mag
-                +. vecToFruitY
-                /. mag2
-                *. dy
-                /. mag;
-              if (dot > closestDot) {
-                (vecToFruitX, vecToFruitY, dot);
-              } else {
-                (closestX, closestY, closestDot);
-              };
-            },
-            (dx, dy, 0.98),
-            getOnScreenItems(state, env),
-          );
-        (dx, dy);
-      } else {
-        (dx, dy);
-      };
-
     let mag = sqrt(dx *. dx +. dy *. dy);
-    if (mag > 20. || state.experiment == _EXPERIMENT_PATH_AIMING && mag > 4.) {
+
+    /*let (dx, dy) =
+      if (List.length(points) < 10) {
+        let numberOfPointsToAverage = 3;
+        let firstCoupleOfPoints =
+          if (List.length(points) >= numberOfPointsToAverage) {
+            let (firstCoupleOfPoints, _) =
+              splitListAt(points, numberOfPointsToAverage);
+            firstCoupleOfPoints;
+          } else {
+            points;
+          };
+
+        let (dx, dy) =
+          List.fold_left(
+            ((dx, dy), (x, y)) => (dx +. (sx -. x), dy +. (sy -. y)),
+            (dx, dy),
+            firstCoupleOfPoints,
+          );
+
+        (dx /. mag, dy /. mag);
+      } else {
+        (dx, dy);
+      };
+
+    let (dx, dy, _) =
+      List.fold_left(
+        ((closestX, closestY, closestDot), (x, y)) => {
+          let xf = float_of_int(x);
+          let yf = float_of_int(y);
+
+          let (vecToFruitX, vecToFruitY) = (state.x -. xf, state.y -. yf);
+          let mag2 =
+            sqrt(vecToFruitX *. vecToFruitX +. vecToFruitY *. vecToFruitY);
+          let dot =
+            vecToFruitX
+            /. mag2
+            *. dx
+            /. mag
+            +. vecToFruitY
+            /. mag2
+            *. dy
+            /. mag;
+          if (dot > closestDot) {
+            (vecToFruitX, vecToFruitY, dot);
+          } else {
+            (closestX, closestY, closestDot);
+          };
+        },
+        (dx, dy, 0.98),
+        getOnScreenItems(state, env),
+      );*/
+
+    if (mag > 20.) {
+      let mag = sqrt(dx *. dx +. dy *. dy);
       let moveX = dx /. mag *. moveSpeed;
       let moveY = dy /. mag *. moveSpeed;
       Draw.pushStyle(env);
@@ -450,10 +382,7 @@ let draw = (state, env) => {
     );
 
   let state =
-    if (state.prevMouseState
-        && !Env.mousePressed(env)
-        && mx < 100.
-        && my < 100.) {
+    if (state.prevMouseState && !Env.mousePressed(env) && mx < 60. && my < 60.) {
       {
         ...state,
         experiment: (state.experiment + 1) mod (_NUMBER_OF_EXPERIMENTS + 1),
@@ -464,8 +393,9 @@ let draw = (state, env) => {
         let dx = sx -. mx;
         let dy = sy -. my;
         let mag = sqrt(dx *. dx +. dy *. dy);
+        let aimCap = 50.;
         let (sx, sy) =
-          if (state.experiment == _EXPERIMENT_CAPPED_AIMING && mag > 50.) {
+          if (mag > aimCap) {
             (mx +. dx /. mag *. 50., my +. dy /. mag *. 50.);
           } else {
             (sx, sy);
@@ -476,75 +406,67 @@ let draw = (state, env) => {
       | (Aiming(sx, sy, points), false) =>
         let dx = sx -. mx;
         let dy = sy -. my;
-
-        let (dx, dy) =
-          if (state.experiment == _EXPERIMENT_PATH_AIMING) {
-            let len = List.length(points);
-            let maxNumberOfPointsInSwipe = 10;
-            if (len > maxNumberOfPointsInSwipe) {
-              (dx, dy);
-            } else {
-              let ratio = 0.5;
-              let (dx, dy) =
-                List.fold_left(
-                  ((dx, dy), (x, y)) => (
-                    dx *. (1. -. ratio) +. (sx -. x) *. ratio,
-                    dy *. (1. -. ratio) +. (sy -. y) *. ratio,
-                  ),
-                  (0., 0.),
-                  points,
-                );
-              (dx, dy);
-            };
-          } else {
-            (dx, dy);
-          };
-
-        let (dx, dy) =
-          if (state.experiment == _EXPERIMENT_AIM_ASSIST) {
-            let mag = sqrt(dx *. dx +. dy *. dy);
-
-            let (dx, dy, _) =
-              List.fold_left(
-                ((closestX, closestY, closestDot), (x, y)) => {
-                  let xf = float_of_int(x);
-                  let yf = float_of_int(y);
-
-                  let (vecToFruitX, vecToFruitY) = (
-                    state.x -. xf,
-                    state.y -. yf,
-                  );
-                  let mag2 =
-                    sqrt(
-                      vecToFruitX *. vecToFruitX +. vecToFruitY *. vecToFruitY,
-                    );
-                  let dot =
-                    vecToFruitX
-                    /. mag2
-                    *. dx
-                    /. mag
-                    +. vecToFruitY
-                    /. mag2
-                    *. dy
-                    /. mag;
-                  if (dot > closestDot) {
-                    (vecToFruitX, vecToFruitY, dot);
-                  } else {
-                    (closestX, closestY, closestDot);
-                  };
-                },
-                (dx, dy, 0.98),
-                getOnScreenItems(state, env),
-              );
-            (dx, dy);
-          } else {
-            (dx, dy);
-          };
-
         let mag = sqrt(dx *. dx +. dy *. dy);
-        if (mag > 20.
-            || state.experiment == _EXPERIMENT_PATH_AIMING
-            && mag > 4.) {
+
+        let (dx, dy) =
+          if (List.length(points) < 10) {
+            let numberOfPointsToAverage = 3;
+            let firstCoupleOfPoints =
+              if (List.length(points) >= numberOfPointsToAverage) {
+                let (firstCoupleOfPoints, _) =
+                  splitListAt(points, numberOfPointsToAverage);
+                firstCoupleOfPoints;
+              } else {
+                points;
+              };
+
+            let (dx, dy) =
+              List.fold_left(
+                ((dx, dy), (x, y)) => (dx +. (sx -. x), dy +. (sy -. y)),
+                (dx, dy),
+                firstCoupleOfPoints,
+              );
+
+            (dx /. mag, dy /. mag);
+          } else {
+            (dx, dy);
+          };
+
+        let (dx, dy, _) =
+          List.fold_left(
+            ((closestX, closestY, closestDot), (x, y)) => {
+              let xf = float_of_int(x);
+              let yf = float_of_int(y);
+
+              let (vecToFruitX, vecToFruitY) = (
+                state.x -. xf,
+                state.y -. yf,
+              );
+              let mag2 =
+                sqrt(
+                  vecToFruitX *. vecToFruitX +. vecToFruitY *. vecToFruitY,
+                );
+              let dot =
+                vecToFruitX
+                /. mag2
+                *. dx
+                /. mag
+                +. vecToFruitY
+                /. mag2
+                *. dy
+                /. mag;
+              if (dot > closestDot) {
+                (vecToFruitX, vecToFruitY, dot);
+              } else {
+                (closestX, closestY, closestDot);
+              };
+            },
+            (dx, dy, 0.98),
+            getOnScreenItems(state, env),
+          );
+        if (mag > 20.) {
+          let mag = sqrt(dx *. dx +. dy *. dy);
+
           let destX = state.x -. dx /. mag *. moveSpeed;
           let destY = state.y -. dy /. mag *. moveSpeed;
           {
@@ -598,9 +520,4 @@ let draw = (state, env) => {
 };
 
 let run = (size, assetDir) =>
-  Reprocessing.run(
-    ~setup=setup(size, assetDir),
-    ~draw,
-    ~screen="FightyFruity",
-    (),
-  );
+  Reprocessing.run(~setup=setup(`FullScreen, "./assets"), ~draw, ());

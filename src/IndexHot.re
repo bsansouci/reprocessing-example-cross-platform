@@ -1,1 +1,1 @@
-Reprocessing.hotreload("src/Game.re");
+Reprocessing.hotreload("src/dev.re");

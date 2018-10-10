@@ -15,7 +15,7 @@
   "package-specs": ["es6"],
   "entries": [{
     "backend": "bytecode",
-    "main-module": "Dev",
+    "main-module": "IndexHot",
   }, {
     "backend": "ios",
     "main-module": "Ios"
