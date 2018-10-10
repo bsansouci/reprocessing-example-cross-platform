@@ -1,6 +1,6 @@
 let _DEBUG = true;
 
-let _NUMBER_OF_EXPERIMENTS = 2;
+let _NUMBER_OF_EXPERIMENTS = 3;
 
 /* The idea with this is that currently the rotation amount of the aiming line depends on how far
    the touch has moved from its start position.
@@ -15,9 +15,15 @@ let _NUMBER_OF_EXPERIMENTS = 2;
 
    Now if you move right 20pt, the angle formed is atan(20/100) = 0.19
    If instead you had only moved up by 40pt, the angle formed would be atan(20/40) = 0.46
-   The angle is smaller the longer your finger travels away from the start position. That's confusing
-   because you can't easily see your start position nor can you properly estimate the relationship between the distance travel and the angle formed.
-   Solution: cap the distance of the vector made! So it's predictable.
+   The angle is smaller the longer your finger travels away from the start position. That's
+   confusing because you can't easily see your start position nor can you properly estimate the
+   relationship between the distance travel and the angle formed.
+   Solution: Move the start position in the current direction, so it's always at a max distance
+   from the destination of X pt. This ensures the angle you form, relative to where you are and see
+   the aiming line, feels consistent.
+
+
+   Conclusion: pretty good!
    */
 let _EXPERIMENT_CAPPED_AIMING = 1;
 
@@ -32,8 +38,19 @@ let _EXPERIMENT_CAPPED_AIMING = 1;
    numberOfPoints.
 
    This makes quick shots feel much better.
+
+
+   Conclusion: not conclusive.
    */
 let _EXPERIMENT_PATH_AIMING = 2;
+
+/* Aim assist
+
+
+  TODO: measure amount of time spent aiming. Turn off auto-aim if it's too high.
+
+ */
+let _EXPERIMENT_AIM_ASSIST = 3;
 
 open Reprocessing;
 
@@ -129,13 +146,7 @@ let bulletCollidesWithPineapple = ({x, y}: bulletT, pineapples) => {
     switch (pinesapplesRemaining) {
     | [] => None
     | [(sx, sy), ...restOfPineapples] =>
-      if (Utils.intersectRectCircle(
-            ~rectPos=(float_of_int(sx), float_of_int(sy)),
-            ~rectW=64.,
-            ~rectH=64.,
-            ~circlePos=(x, y),
-            ~circleRad=4.,
-          )) {
+      if (Utils.dist((sx, sy), (int_of_float(x), int_of_float(y))) < 30.) {
         Some(index);
       } else {
         loop(restOfPineapples, index + 1);
@@ -175,6 +186,25 @@ let loadAssetMap = (env, possibleFruits) => {
   );
 };
 
+let getOnScreenItems = (state, env) => {
+  let px = int_of_float(state.x);
+  let py = int_of_float(state.y);
+  let padding = (-10);
+
+  List.filter(
+    ((x, y)) =>
+      abs(px - x) < Env.width(env)
+      / 2
+      + padding
+      && abs(py - y) < Env.height(env)
+      / 2
+      + padding,
+    state.stuff,
+  );
+};
+
+Random.init(0);
+
 let setup = (size, assetDir, env) => {
   switch (size) {
   | `InitialSize => ()
@@ -190,10 +220,11 @@ let setup = (size, assetDir, env) => {
     x: 0.,
     y: 0.,
     aim: Nothing,
+    /*stuff: [(99, 99), (300, 100), (-100, 100), (-100, -100), (23, -100)],*/
     stuff:
       initList(100, _ =>
         (
-          Utils.random(~min=-1000, ~max=100),
+          Utils.random(~min=-1000, ~max=1000),
           Utils.random(~min=-1000, ~max=1000),
         )
       ),
@@ -214,20 +245,17 @@ let draw = (state, env) => {
   let halfWindowHf = float_of_int(halfWindowH);
   let playerSize = 32;
   let playerSizef = 32.;
-  /* Draw.image(state.bg, ~pos=(0, 0), env); */
   if (state.experiment == _EXPERIMENT_CAPPED_AIMING) {
     Draw.background(Utils.color(220, 120, 120, 255), env);
   } else if (state.experiment == _EXPERIMENT_PATH_AIMING) {
     Draw.background(Utils.color(140, 220, 140, 255), env);
+  } else if (state.experiment == _EXPERIMENT_AIM_ASSIST) {
+    Draw.background(Utils.color(140, 140, 220, 255), env);
   } else {
     Draw.background(Constants.white, env);
   };
   Draw.pushMatrix(env);
-  Draw.translate(
-    ~x=halfWindowWf -. playerSizef -. state.x,
-    ~y=halfWindowHf -. playerSizef -. state.y,
-    env,
-  );
+  Draw.translate(~x=halfWindowWf -. state.x, ~y=halfWindowHf -. state.y, env);
 
   List.iter(
     ({x, y, width, height, rotation}) =>
@@ -255,6 +283,17 @@ let draw = (state, env) => {
     state.stuff,
   );
 
+  if (_DEBUG) {
+    /* Draw pineapple dots */
+    Draw.pushStyle(env);
+    Draw.strokeWeight(1, env);
+    Draw.stroke(Constants.red, env);
+    List.iter(
+      ((x, y)) => Draw.ellipse(~center=(x, y), ~radx=4, ~rady=4, env),
+      getOnScreenItems(state, env),
+    );
+    Draw.popStyle(env);
+  };
   /* Draw the bullets.
       Uses some super hacky angle calculation do draw bullets as ellipses pointing in the right
       direction.
@@ -308,6 +347,47 @@ let draw = (state, env) => {
             );
           (dx, dy);
         };
+      } else {
+        (dx, dy);
+      };
+
+    let (dx, dy) =
+      if (state.experiment == _EXPERIMENT_AIM_ASSIST) {
+        let mag = sqrt(dx *. dx +. dy *. dy);
+
+        let (dx, dy, _) =
+          List.fold_left(
+            ((closestX, closestY, closestDot), (x, y)) => {
+              let xf = float_of_int(x);
+              let yf = float_of_int(y);
+
+              let (vecToFruitX, vecToFruitY) = (
+                state.x -. xf,
+                state.y -. yf,
+              );
+              let mag2 =
+                sqrt(
+                  vecToFruitX *. vecToFruitX +. vecToFruitY *. vecToFruitY,
+                );
+              let dot =
+                vecToFruitX
+                /. mag2
+                *. dx
+                /. mag
+                +. vecToFruitY
+                /. mag2
+                *. dy
+                /. mag;
+              if (dot > closestDot) {
+                (vecToFruitX, vecToFruitY, dot);
+              } else {
+                (closestX, closestY, closestDot);
+              };
+            },
+            (dx, dy, 0.98),
+            getOnScreenItems(state, env),
+          );
+        (dx, dy);
       } else {
         (dx, dy);
       };
@@ -420,6 +500,47 @@ let draw = (state, env) => {
             (dx, dy);
           };
 
+        let (dx, dy) =
+          if (state.experiment == _EXPERIMENT_AIM_ASSIST) {
+            let mag = sqrt(dx *. dx +. dy *. dy);
+
+            let (dx, dy, _) =
+              List.fold_left(
+                ((closestX, closestY, closestDot), (x, y)) => {
+                  let xf = float_of_int(x);
+                  let yf = float_of_int(y);
+
+                  let (vecToFruitX, vecToFruitY) = (
+                    state.x -. xf,
+                    state.y -. yf,
+                  );
+                  let mag2 =
+                    sqrt(
+                      vecToFruitX *. vecToFruitX +. vecToFruitY *. vecToFruitY,
+                    );
+                  let dot =
+                    vecToFruitX
+                    /. mag2
+                    *. dx
+                    /. mag
+                    +. vecToFruitY
+                    /. mag2
+                    *. dy
+                    /. mag;
+                  if (dot > closestDot) {
+                    (vecToFruitX, vecToFruitY, dot);
+                  } else {
+                    (closestX, closestY, closestDot);
+                  };
+                },
+                (dx, dy, 0.98),
+                getOnScreenItems(state, env),
+              );
+            (dx, dy);
+          } else {
+            (dx, dy);
+          };
+
         let mag = sqrt(dx *. dx +. dy *. dy);
         if (mag > 20.
             || state.experiment == _EXPERIMENT_PATH_AIMING
@@ -431,8 +552,8 @@ let draw = (state, env) => {
             aim: Moving((state.x, state.y), (destX, destY), moveTime),
             bullets: [
               {
-                x: state.x -. dx /. mag *. playerSizef +. playerSizef,
-                y: state.y -. dy /. mag *. playerSizef +. playerSizef,
+                x: state.x -. dx /. mag *. playerSizef,
+                y: state.y -. dy /. mag *. playerSizef,
                 vx: -. dx /. mag *. 10.,
                 vy: -. dy /. mag *. 10.,
               },
