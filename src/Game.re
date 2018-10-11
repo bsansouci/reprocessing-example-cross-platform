@@ -1,4 +1,4 @@
-let _DEBUG = true;
+let _DEBUG = 1;
 
 let _NUMBER_OF_EXPERIMENTS = 1;
 
@@ -147,7 +147,7 @@ let loadAssetMap = (env, possibleFruits) => {
 let getOnScreenItems = (state, env) => {
   let px = int_of_float(state.x);
   let py = int_of_float(state.y);
-  let padding = (-10);
+  let padding = 0;
 
   List.filter(
     ((x, y)) =>
@@ -161,7 +161,12 @@ let getOnScreenItems = (state, env) => {
   );
 };
 
-Random.init(0);
+let bulletIsOutOfRange = (state, bullet : bulletT, env) => {
+  let padding = -10.;
+  let screenCoordX = state.x -. bullet.x;
+  let screenCoordY = state.y -. bullet.y;
+  screenCoordX > float_of_int(Env.width(env)) -. padding && screenCoordX < padding && screenCoordY > float_of_int(Env.height(env)) -. padding && screenCoordY < padding
+};
 
 let setup = (size, assetDir, env) => {
   switch (size) {
@@ -174,6 +179,7 @@ let setup = (size, assetDir, env) => {
     )
   | `Normal => Env.size(~width=500, ~height=500, env)
   };
+  Random.init(0);
   {
     x: 0.,
     y: 0.,
@@ -205,6 +211,7 @@ let draw = (state, env) => {
   let halfWindowHf = float_of_int(halfWindowH);
   let playerSize = 32;
   let playerSizef = 32.;
+  let autoaimDisengageTime = 0.8;
 
   let state = {...state, time: state.time +. dt};
 
@@ -219,7 +226,10 @@ let draw = (state, env) => {
   let state =
     List.fold_left(
       (state, {x, y, vx, vy} as bullet: bulletT) =>
-        switch (bulletCollidesWithPineapple(bullet, state.stuff)) {
+        if (bulletIsOutOfRange(state, bullet, env)) {
+          state
+        } else {
+          switch (bulletCollidesWithPineapple(bullet, state.stuff)) {
         | None => {
             ...state,
             bullets: [{...bullet, x: x +. vx, y: y +. vy}, ...state.bullets],
@@ -242,7 +252,8 @@ let draw = (state, env) => {
             }
           | _ => assert(false)
           }
-        },
+        }
+        } ,
       {...state, bullets: []},
       state.bullets,
     );
@@ -311,7 +322,7 @@ let draw = (state, env) => {
             (dx, dy);
           };
         
-        let shouldAssistAim = (state.time -. startAimTime) < 0.8;
+        let shouldAssistAim = (state.time -. startAimTime) < autoaimDisengageTime;
         let (dx, dy) = if (shouldAssistAim) {
           let (dx, dy, _) = List.fold_left(
             ((closestX, closestY, closestDot), (x, y)) => {
@@ -350,7 +361,7 @@ let draw = (state, env) => {
         }
         if (mag > 20.) {
           let mag = sqrt(dx *. dx +. dy *. dy);
-
+          let bulletSpeed = 20.;
           let destX = state.x -. dx /. mag *. moveSpeed;
           let destY = state.y -. dy /. mag *. moveSpeed;
           {
@@ -360,8 +371,8 @@ let draw = (state, env) => {
               {
                 x: state.x -. dx /. mag *. playerSizef,
                 y: state.y -. dy /. mag *. playerSizef,
-                vx: -. dx /. mag *. 10.,
-                vy: -. dy /. mag *. 10.,
+                vx: -. dx /. mag *. bulletSpeed,
+                vy: -. dy /. mag *. bulletSpeed,
               },
               ...state.bullets,
             ],
@@ -421,7 +432,7 @@ let draw = (state, env) => {
     state.stuff,
   );
 
-  if (_DEBUG) {
+  if (state.experiment == _DEBUG) {
     /* Draw pineapple dots */
     Draw.pushStyle(env);
     Draw.strokeWeight(1, env);
@@ -457,7 +468,7 @@ let draw = (state, env) => {
 
   /* Draw the aim line */
   switch (state.aim, Env.mousePressed(env)) {
-  | (Aiming({x: sx, y: sy, points}), true) =>
+  | (Aiming({x: sx, y: sy, points, startAimTime}), true) =>
     let dx = sx -. mx;
     let dy = sy -. my;
     let mag = sqrt(dx *. dx +. dy *. dy);
@@ -467,22 +478,73 @@ let draw = (state, env) => {
       let moveX = dx /. mag *. moveSpeed;
       let moveY = dy /. mag *. moveSpeed;
       Draw.pushStyle(env);
-      Draw.strokeWeight(1, env);
-      Draw.stroke(Constants.red, env);
-      if (_DEBUG) {
-        Draw.linef(~p1=(sx, sy), ~p2=(mx, my), env);
-      };
-      Draw.linef(
-        ~p1=(halfWindowWf, halfWindowHf),
-        ~p2=(halfWindowWf -. moveX *. 100., halfWindowHf -. moveY *. 100.),
-        env,
-      );
-      Draw.popStyle(env);
+      Draw.strokeWeight(2, env);
+      Draw.stroke(Constants.black, env);
       Draw.linef(
         ~p1=(halfWindowWf, halfWindowHf),
         ~p2=(halfWindowWf -. moveX, halfWindowHf -. moveY),
         env,
       );
+      Draw.popStyle(env);
+      
+      if (state.experiment == _DEBUG) {
+        Draw.pushStyle(env);
+        Draw.strokeWeight(1, env);
+        Draw.stroke(Constants.red, env);
+        Draw.linef(~p1=(sx, sy), ~p2=(mx, my), env);
+        Draw.linef(
+          ~p1=(halfWindowWf, halfWindowHf),
+          ~p2=(halfWindowWf -. moveX *. 100., halfWindowHf -. moveY *. 100.),
+          env,
+        );
+        
+        let shouldAssistAim = (state.time -. startAimTime) < autoaimDisengageTime;
+        if (shouldAssistAim) {
+          let (dx, dy, dot) = List.fold_left(
+              ((closestX, closestY, closestDot), (x, y)) => {
+                let xf = float_of_int(x);
+                let yf = float_of_int(y);
+
+                let (vecToFruitX, vecToFruitY) = (
+                  state.x -. xf,
+                  state.y -. yf,
+                );
+                let mag2 =
+                  sqrt(
+                    vecToFruitX *. vecToFruitX +. vecToFruitY *. vecToFruitY,
+                  );
+                let dot =
+                  vecToFruitX
+                  /. mag2
+                  *. dx
+                  /. mag
+                  +. vecToFruitY
+                  /. mag2
+                  *. dy
+                  /. mag;
+                if (dot > closestDot) {
+                  (vecToFruitX, vecToFruitY, dot);
+                } else {
+                  (closestX, closestY, closestDot);
+                };
+              },
+              (dx, dy, 0.),
+              getOnScreenItems(state, env),
+            );
+          if (dot > 0.98) {
+            let mag = sqrt(dx *. dx +. dy *. dy);
+            let moveX = dx /. mag *. moveSpeed;
+            let moveY = dy /. mag *. moveSpeed;
+            Draw.stroke(Constants.blue, env);
+            Draw.linef(
+              ~p1=(halfWindowWf, halfWindowHf),
+              ~p2=(halfWindowWf -. moveX *. 100., halfWindowHf -. moveY *. 100.),
+              env,
+            );
+          }
+        }
+        Draw.popStyle(env)
+      };
     };
   | _ => ()
   };
