@@ -209,9 +209,12 @@ let draw = (state, env) => {
   let state = {...state, time: state.time +. dt};
 
   /* ======= EVENTS + UPDATES ======= */
-  let (mx, my) = Env.mouse(env);
-  let (mx, my) = (float_of_int(mx), float_of_int(my));
-
+  let (mx, my) = switch (Env.changedTouches(env)) {
+  | [] => 
+    let (mx, my) = Env.mouse(env);
+    (float_of_int(mx), float_of_int(my))
+  | [{x, y}, ...rest] => (x, y)
+  };
   /* Bullet collision detection and response */
   let state =
     List.fold_left(
