@@ -6,9 +6,16 @@ open Reprocessing;
 
 module AssetMap = Map.Make(String);
 
+type aimingPacketT = {
+  x: float,
+  y: float,
+  points: list((float, float)),
+  startAimTime: float,
+};
+
 type aimT =
   | Nothing
-  | Aiming(float, float, list((float, float)))
+  | Aiming(aimingPacketT)
   | Moving((float, float), (float, float), float);
 
 type bulletT = {
@@ -29,6 +36,7 @@ type splashT = {
 type state = {
   x: float,
   y: float,
+  time: float,
   aim: aimT,
   stuff: list((int, int)),
   splashes: list(splashT),
@@ -169,6 +177,7 @@ let setup = (size, assetDir, env) => {
   {
     x: 0.,
     y: 0.,
+    time: 0.,
     aim: Nothing,
     /*stuff: [(99, 99), (300, 100), (-100, 100), (-100, -100), (23, -100)],*/
     stuff:
@@ -189,6 +198,7 @@ let setup = (size, assetDir, env) => {
 
 let draw = (state, env) => {
   let dt = Env.deltaTime(env);
+
   let halfWindowW = Env.width(env) / 2;
   let halfWindowWf = float_of_int(halfWindowW);
   let halfWindowH = Env.height(env) / 2;
@@ -196,6 +206,188 @@ let draw = (state, env) => {
   let playerSize = 32;
   let playerSizef = 32.;
 
+  let state = {...state, time: state.time +. dt};
+
+  /* ======= EVENTS + UPDATES ======= */
+  let (mx, my) = Env.mouse(env);
+  let (mx, my) = (float_of_int(mx), float_of_int(my));
+
+  /* Bullet collision detection and response */
+  let state =
+    List.fold_left(
+      (state, {x, y, vx, vy} as bullet: bulletT) =>
+        switch (bulletCollidesWithPineapple(bullet, state.stuff)) {
+        | None => {
+            ...state,
+            bullets: [{...bullet, x: x +. vx, y: y +. vy}, ...state.bullets],
+          }
+        | Some(index) =>
+          switch (splitListAt(state.stuff, index)) {
+          | (headList, [(px, py), ...restOfTail]) => {
+              ...state,
+              stuff: headList @ restOfTail,
+              splashes: [
+                {
+                  x: px,
+                  y: py,
+                  width: Utils.random(~min=40, ~max=64),
+                  height: Utils.random(~min=40, ~max=64),
+                  rotation: Utils.randomf(~min=0., ~max=Constants.pi),
+                },
+                ...state.splashes,
+              ],
+            }
+          | _ => assert(false)
+          }
+        },
+      {...state, bullets: []},
+      state.bullets,
+    );
+
+  let state =
+    if (state.prevMouseState && !Env.mousePressed(env) && mx < 60. && my < 60.) {
+      {
+        ...state,
+        experiment: (state.experiment + 1) mod (_NUMBER_OF_EXPERIMENTS + 1),
+      };
+    } else {
+      switch (state.aim, Env.mousePressed(env)) {
+      | (Aiming({x: sx, y: sy, points} as aiming), true) =>
+        let dx = sx -. mx;
+        let dy = sy -. my;
+        let mag = sqrt(dx *. dx +. dy *. dy);
+        let aimCap = 50.;
+        let (sx, sy) =
+          if (mag > aimCap) {
+            (mx +. dx /. mag *. 50., my +. dy /. mag *. 50.);
+          } else {
+            (sx, sy);
+          };
+        {
+          ...state,
+          aim:
+            Aiming({
+              ...aiming,
+              x: sx,
+              y: sy,
+              points: [(mx, my), ...points],
+            }),
+        };
+      | (Nothing, false) => state
+      | (Nothing, true) => {
+          ...state,
+          aim: Aiming({x: mx, y: my, points: [], startAimTime: state.time}),
+        }
+      | (Aiming({x: sx, y: sy, points, startAimTime}), false) =>
+        let dx = sx -. mx;
+        let dy = sy -. my;
+        let mag = sqrt(dx *. dx +. dy *. dy);
+        
+        let isGestureAFlick = List.length(points) < 10;
+        let (dx, dy) =
+          if (isGestureAFlick) {
+            let numberOfPointsToAverage = 3;
+            let firstCoupleOfPoints =
+              if (List.length(points) >= numberOfPointsToAverage) {
+                let (firstCoupleOfPoints, _) =
+                  splitListAt(points, numberOfPointsToAverage);
+                firstCoupleOfPoints;
+              } else {
+                points;
+              };
+
+            let (dx, dy) =
+              List.fold_left(
+                ((dx, dy), (x, y)) => (dx +. (sx -. x), dy +. (sy -. y)),
+                (dx, dy),
+                firstCoupleOfPoints,
+              );
+
+            (dx /. mag, dy /. mag);
+          } else {
+            (dx, dy);
+          };
+        
+        let shouldAssistAim = (state.time -. startAimTime) < 0.8;
+        let (dx, dy) = if (shouldAssistAim) {
+          let (dx, dy, _) = List.fold_left(
+            ((closestX, closestY, closestDot), (x, y)) => {
+              let xf = float_of_int(x);
+              let yf = float_of_int(y);
+
+              let (vecToFruitX, vecToFruitY) = (
+                state.x -. xf,
+                state.y -. yf,
+              );
+              let mag2 =
+                sqrt(
+                  vecToFruitX *. vecToFruitX +. vecToFruitY *. vecToFruitY,
+                );
+              let dot =
+                vecToFruitX
+                /. mag2
+                *. dx
+                /. mag
+                +. vecToFruitY
+                /. mag2
+                *. dy
+                /. mag;
+              if (dot > closestDot) {
+                (vecToFruitX, vecToFruitY, dot);
+              } else {
+                (closestX, closestY, closestDot);
+              };
+            },
+            (dx, dy, 0.98),
+            getOnScreenItems(state, env),
+          );
+          (dx, dy)
+        } else {
+          (dx, dy)
+        }
+        if (mag > 20.) {
+          let mag = sqrt(dx *. dx +. dy *. dy);
+
+          let destX = state.x -. dx /. mag *. moveSpeed;
+          let destY = state.y -. dy /. mag *. moveSpeed;
+          {
+            ...state,
+            aim: Moving((state.x, state.y), (destX, destY), moveTime),
+            bullets: [
+              {
+                x: state.x -. dx /. mag *. playerSizef,
+                y: state.y -. dy /. mag *. playerSizef,
+                vx: -. dx /. mag *. 10.,
+                vy: -. dy /. mag *. 10.,
+              },
+              ...state.bullets,
+            ],
+          };
+        } else {
+          {...state, aim: Nothing};
+        };
+      | (Moving(_prev, (destX, destY), time), _) when time <= 0. => {
+          ...state,
+          aim: Nothing,
+          x: destX,
+          y: destY,
+        }
+      | (
+          Moving((startX, startY) as start, (destX, destY) as dest, time),
+          _,
+        ) =>
+        let lerpAmt =
+          Utils.constrain(~amt=time /. moveTime, ~low=0., ~high=1.);
+        {
+          ...state,
+          aim: Moving(start, dest, time -. dt),
+          x: Utils.lerpf(~low=destX, ~high=startX, ~value=lerpAmt),
+          y: Utils.lerpf(~low=destY, ~high=startY, ~value=lerpAmt),
+        };
+      };
+    };
+
+  /* ======= DRAWING ======= */
   Draw.background(Constants.white, env);
   Draw.pushMatrix(env);
   Draw.translate(~x=halfWindowWf -. state.x, ~y=halfWindowHf -. state.y, env);
@@ -257,72 +449,15 @@ let draw = (state, env) => {
     },
     state.bullets,
   );
-  Draw.popMatrix(env);
-  Draw.image(
-    AssetMap.find("apple", state.assetMap),
-    ~pos=(halfWindowW - playerSize, halfWindowH - playerSize),
-    env,
-  );
 
-  let (mx, my) = Env.mouse(env);
-  let (mx, my) = (float_of_int(mx), float_of_int(my));
+  Draw.popMatrix(env);
+
+  /* Draw the aim line */
   switch (state.aim, Env.mousePressed(env)) {
-  | (Aiming(sx, sy, points), true) =>
+  | (Aiming({x: sx, y: sy, points}), true) =>
     let dx = sx -. mx;
     let dy = sy -. my;
     let mag = sqrt(dx *. dx +. dy *. dy);
-
-    /*let (dx, dy) =
-      if (List.length(points) < 10) {
-        let numberOfPointsToAverage = 3;
-        let firstCoupleOfPoints =
-          if (List.length(points) >= numberOfPointsToAverage) {
-            let (firstCoupleOfPoints, _) =
-              splitListAt(points, numberOfPointsToAverage);
-            firstCoupleOfPoints;
-          } else {
-            points;
-          };
-
-        let (dx, dy) =
-          List.fold_left(
-            ((dx, dy), (x, y)) => (dx +. (sx -. x), dy +. (sy -. y)),
-            (dx, dy),
-            firstCoupleOfPoints,
-          );
-
-        (dx /. mag, dy /. mag);
-      } else {
-        (dx, dy);
-      };
-
-    let (dx, dy, _) =
-      List.fold_left(
-        ((closestX, closestY, closestDot), (x, y)) => {
-          let xf = float_of_int(x);
-          let yf = float_of_int(y);
-
-          let (vecToFruitX, vecToFruitY) = (state.x -. xf, state.y -. yf);
-          let mag2 =
-            sqrt(vecToFruitX *. vecToFruitX +. vecToFruitY *. vecToFruitY);
-          let dot =
-            vecToFruitX
-            /. mag2
-            *. dx
-            /. mag
-            +. vecToFruitY
-            /. mag2
-            *. dy
-            /. mag;
-          if (dot > closestDot) {
-            (vecToFruitX, vecToFruitY, dot);
-          } else {
-            (closestX, closestY, closestDot);
-          };
-        },
-        (dx, dy, 0.98),
-        getOnScreenItems(state, env),
-      );*/
 
     if (mag > 20.) {
       let mag = sqrt(dx *. dx +. dy *. dy);
@@ -349,174 +484,14 @@ let draw = (state, env) => {
   | _ => ()
   };
 
-  /* Bullet collision detection and response */
-  let state =
-    List.fold_left(
-      (state, {x, y, vx, vy} as bullet: bulletT) =>
-        switch (bulletCollidesWithPineapple(bullet, state.stuff)) {
-        | None => {
-            ...state,
-            bullets: [{...bullet, x: x +. vx, y: y +. vy}, ...state.bullets],
-          }
-        | Some(index) =>
-          switch (splitListAt(state.stuff, index)) {
-          | (headList, [(px, py), ...restOfTail]) => {
-              ...state,
-              stuff: headList @ restOfTail,
-              splashes: [
-                {
-                  x: px,
-                  y: py,
-                  width: Utils.random(~min=40, ~max=64),
-                  height: Utils.random(~min=40, ~max=64),
-                  rotation: Utils.randomf(~min=0., ~max=Constants.pi),
-                },
-                ...state.splashes,
-              ],
-            }
-          | _ => assert(false)
-          }
-        },
-      {...state, bullets: []},
-      state.bullets,
-    );
+  /* Draw the player */
+  Draw.image(
+    AssetMap.find("apple", state.assetMap),
+    ~pos=(halfWindowW - playerSize, halfWindowH - playerSize),
+    env,
+  );
 
-  let state =
-    if (state.prevMouseState && !Env.mousePressed(env) && mx < 60. && my < 60.) {
-      {
-        ...state,
-        experiment: (state.experiment + 1) mod (_NUMBER_OF_EXPERIMENTS + 1),
-      };
-    } else {
-      switch (state.aim, Env.mousePressed(env)) {
-      | (Aiming(sx, sy, points), true) =>
-        let dx = sx -. mx;
-        let dy = sy -. my;
-        let mag = sqrt(dx *. dx +. dy *. dy);
-        let aimCap = 50.;
-        let (sx, sy) =
-          if (mag > aimCap) {
-            (mx +. dx /. mag *. 50., my +. dy /. mag *. 50.);
-          } else {
-            (sx, sy);
-          };
-        {...state, aim: Aiming(sx, sy, [(mx, my), ...points])};
-      | (Nothing, false) => state
-      | (Nothing, true) => {...state, aim: Aiming(mx, my, [])}
-      | (Aiming(sx, sy, points), false) =>
-        let dx = sx -. mx;
-        let dy = sy -. my;
-        let mag = sqrt(dx *. dx +. dy *. dy);
-
-        let (dx, dy) =
-          if (List.length(points) < 10) {
-            let numberOfPointsToAverage = 3;
-            let firstCoupleOfPoints =
-              if (List.length(points) >= numberOfPointsToAverage) {
-                let (firstCoupleOfPoints, _) =
-                  splitListAt(points, numberOfPointsToAverage);
-                firstCoupleOfPoints;
-              } else {
-                points;
-              };
-
-            let (dx, dy) =
-              List.fold_left(
-                ((dx, dy), (x, y)) => (dx +. (sx -. x), dy +. (sy -. y)),
-                (dx, dy),
-                firstCoupleOfPoints,
-              );
-
-            (dx /. mag, dy /. mag);
-          } else {
-            (dx, dy);
-          };
-
-        let (dx, dy, _) =
-          List.fold_left(
-            ((closestX, closestY, closestDot), (x, y)) => {
-              let xf = float_of_int(x);
-              let yf = float_of_int(y);
-
-              let (vecToFruitX, vecToFruitY) = (
-                state.x -. xf,
-                state.y -. yf,
-              );
-              let mag2 =
-                sqrt(
-                  vecToFruitX *. vecToFruitX +. vecToFruitY *. vecToFruitY,
-                );
-              let dot =
-                vecToFruitX
-                /. mag2
-                *. dx
-                /. mag
-                +. vecToFruitY
-                /. mag2
-                *. dy
-                /. mag;
-              if (dot > closestDot) {
-                (vecToFruitX, vecToFruitY, dot);
-              } else {
-                (closestX, closestY, closestDot);
-              };
-            },
-            (dx, dy, 0.98),
-            getOnScreenItems(state, env),
-          );
-        if (mag > 20.) {
-          let mag = sqrt(dx *. dx +. dy *. dy);
-
-          let destX = state.x -. dx /. mag *. moveSpeed;
-          let destY = state.y -. dy /. mag *. moveSpeed;
-          {
-            ...state,
-            aim: Moving((state.x, state.y), (destX, destY), moveTime),
-            bullets: [
-              {
-                x: state.x -. dx /. mag *. playerSizef,
-                y: state.y -. dy /. mag *. playerSizef,
-                vx: -. dx /. mag *. 10.,
-                vy: -. dy /. mag *. 10.,
-              },
-              ...state.bullets,
-            ],
-          };
-        } else {
-          {...state, aim: Nothing};
-        };
-      | (Moving(_prev, (destX, destY), time), _) when time <= 0. => {
-          ...state,
-          aim: Nothing,
-          x: destX,
-          y: destY,
-        }
-      | (
-          Moving((startX, startY) as start, (destX, destY) as dest, time),
-          _,
-        ) =>
-        let lerpAmt =
-          Utils.constrain(~amt=time /. moveTime, ~low=0., ~high=1.);
-        {
-          ...state,
-          aim: Moving(start, dest, time -. dt),
-          x: Utils.lerpf(~low=destX, ~high=startX, ~value=lerpAmt),
-          y: Utils.lerpf(~low=destY, ~high=startY, ~value=lerpAmt),
-        };
-      };
-    };
-
-  let state = {...state, prevMouseState: Env.mousePressed(env)};
-
-  let state =
-    if (Env.key(Down, env)) {
-      {...state, y: state.y +. 10.};
-    } else if (Env.key(Up, env)) {
-      {...state, y: state.y -. 10.};
-    } else {
-      state;
-    };
-  state;
+  {...state, prevMouseState: Env.mousePressed(env)};
 };
 
 let run = (size, assetDir) =>

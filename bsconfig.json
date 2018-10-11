@@ -9,13 +9,12 @@
     "src"
   ],
   "bs-dependencies": ["reprocessing"],
-  "ocaml-dependencies": ["bigarray", "unix", 
-    // "dynlink"
-  ],
+  "ocaml-dependencies": ["bigarray", "unix", ],
   "package-specs": ["es6"],
   "entries": [{
     "backend": "bytecode",
     "main-module": "IndexHot",
+    "ocaml-dependencies": ["dynlink"],
   }, {
     "backend": "ios",
     "main-module": "Ios"
