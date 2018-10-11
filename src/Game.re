@@ -161,11 +161,16 @@ let getOnScreenItems = (state, env) => {
   );
 };
 
-let bulletIsOutOfRange = (state, bullet : bulletT, env) => {
-  let padding = -10.;
+let bulletIsOutOfRange = (state, bullet: bulletT, env) => {
+  let padding = (-10.);
   let screenCoordX = state.x -. bullet.x;
   let screenCoordY = state.y -. bullet.y;
-  screenCoordX > float_of_int(Env.width(env)) -. padding && screenCoordX < padding && screenCoordY > float_of_int(Env.height(env)) -. padding && screenCoordY < padding
+  screenCoordX > float_of_int(Env.width(env))
+  -. padding
+  && screenCoordX < padding
+  && screenCoordY > float_of_int(Env.height(env))
+  -. padding
+  && screenCoordY < padding;
 };
 
 let setup = (size, assetDir, env) => {
@@ -216,44 +221,48 @@ let draw = (state, env) => {
   let state = {...state, time: state.time +. dt};
 
   /* ======= EVENTS + UPDATES ======= */
-  let (mx, my) = switch (Env.changedTouches(env)) {
-  | [] => 
-    let (mx, my) = Env.mouse(env);
-    (float_of_int(mx), float_of_int(my))
-  | [{x, y}, ...rest] => (x, y)
-  };
+  let (mx, my) =
+    switch (Env.changedTouches(env)) {
+    | [] =>
+      let (mx, my) = Env.mouse(env);
+      (float_of_int(mx), float_of_int(my));
+    | [{x, y}, ...rest] => (x, y)
+    };
   /* Bullet collision detection and response */
   let state =
     List.fold_left(
       (state, {x, y, vx, vy} as bullet: bulletT) =>
         if (bulletIsOutOfRange(state, bullet, env)) {
-          state
+          state;
         } else {
           switch (bulletCollidesWithPineapple(bullet, state.stuff)) {
-        | None => {
-            ...state,
-            bullets: [{...bullet, x: x +. vx, y: y +. vy}, ...state.bullets],
-          }
-        | Some(index) =>
-          switch (splitListAt(state.stuff, index)) {
-          | (headList, [(px, py), ...restOfTail]) => {
+          | None => {
               ...state,
-              stuff: headList @ restOfTail,
-              splashes: [
-                {
-                  x: px,
-                  y: py,
-                  width: Utils.random(~min=40, ~max=64),
-                  height: Utils.random(~min=40, ~max=64),
-                  rotation: Utils.randomf(~min=0., ~max=Constants.pi),
-                },
-                ...state.splashes,
+              bullets: [
+                {...bullet, x: x +. vx, y: y +. vy},
+                ...state.bullets,
               ],
             }
-          | _ => assert(false)
-          }
-        }
-        } ,
+          | Some(index) =>
+            switch (splitListAt(state.stuff, index)) {
+            | (headList, [(px, py), ...restOfTail]) => {
+                ...state,
+                stuff: headList @ restOfTail,
+                splashes: [
+                  {
+                    x: px,
+                    y: py,
+                    width: Utils.random(~min=40, ~max=64),
+                    height: Utils.random(~min=40, ~max=64),
+                    rotation: Utils.randomf(~min=0., ~max=Constants.pi),
+                  },
+                  ...state.splashes,
+                ],
+              }
+            | _ => assert(false)
+            }
+          };
+        },
       {...state, bullets: []},
       state.bullets,
     );
@@ -296,7 +305,7 @@ let draw = (state, env) => {
         let dx = sx -. mx;
         let dy = sy -. my;
         let mag = sqrt(dx *. dx +. dy *. dy);
-        
+
         let isGestureAFlick = List.length(points) < 10;
         let (dx, dy) =
           if (isGestureAFlick) {
@@ -321,44 +330,47 @@ let draw = (state, env) => {
           } else {
             (dx, dy);
           };
-        
-        let shouldAssistAim = (state.time -. startAimTime) < autoaimDisengageTime;
-        let (dx, dy) = if (shouldAssistAim) {
-          let (dx, dy, _) = List.fold_left(
-            ((closestX, closestY, closestDot), (x, y)) => {
-              let xf = float_of_int(x);
-              let yf = float_of_int(y);
 
-              let (vecToFruitX, vecToFruitY) = (
-                state.x -. xf,
-                state.y -. yf,
+        let shouldAssistAim =
+          state.time -. startAimTime < autoaimDisengageTime;
+        let (dx, dy) =
+          if (shouldAssistAim) {
+            let (dx, dy, _) =
+              List.fold_left(
+                ((closestX, closestY, closestDot), (x, y)) => {
+                  let xf = float_of_int(x);
+                  let yf = float_of_int(y);
+
+                  let (vecToFruitX, vecToFruitY) = (
+                    state.x -. xf,
+                    state.y -. yf,
+                  );
+                  let mag2 =
+                    sqrt(
+                      vecToFruitX *. vecToFruitX +. vecToFruitY *. vecToFruitY,
+                    );
+                  let dot =
+                    vecToFruitX
+                    /. mag2
+                    *. dx
+                    /. mag
+                    +. vecToFruitY
+                    /. mag2
+                    *. dy
+                    /. mag;
+                  if (dot > closestDot) {
+                    (vecToFruitX, vecToFruitY, dot);
+                  } else {
+                    (closestX, closestY, closestDot);
+                  };
+                },
+                (dx, dy, 0.98),
+                getOnScreenItems(state, env),
               );
-              let mag2 =
-                sqrt(
-                  vecToFruitX *. vecToFruitX +. vecToFruitY *. vecToFruitY,
-                );
-              let dot =
-                vecToFruitX
-                /. mag2
-                *. dx
-                /. mag
-                +. vecToFruitY
-                /. mag2
-                *. dy
-                /. mag;
-              if (dot > closestDot) {
-                (vecToFruitX, vecToFruitY, dot);
-              } else {
-                (closestX, closestY, closestDot);
-              };
-            },
-            (dx, dy, 0.98),
-            getOnScreenItems(state, env),
-          );
-          (dx, dy)
-        } else {
-          (dx, dy)
-        }
+            (dx, dy);
+          } else {
+            (dx, dy);
+          };
         if (mag > 20.) {
           let mag = sqrt(dx *. dx +. dy *. dy);
           let bulletSpeed = 20.;
@@ -402,7 +414,12 @@ let draw = (state, env) => {
     };
 
   /* ======= DRAWING ======= */
-  Draw.background(Constants.white, env);
+  if (state.experiment == _DEBUG) {
+    Draw.background(Utils.color(120, 120, 220, 255), env);
+  } else {
+    Draw.background(Constants.white, env);
+  };
+
   Draw.pushMatrix(env);
   Draw.translate(~x=halfWindowWf -. state.x, ~y=halfWindowHf -. state.y, env);
 
@@ -486,7 +503,7 @@ let draw = (state, env) => {
         env,
       );
       Draw.popStyle(env);
-      
+
       if (state.experiment == _DEBUG) {
         Draw.pushStyle(env);
         Draw.strokeWeight(1, env);
@@ -497,10 +514,12 @@ let draw = (state, env) => {
           ~p2=(halfWindowWf -. moveX *. 100., halfWindowHf -. moveY *. 100.),
           env,
         );
-        
-        let shouldAssistAim = (state.time -. startAimTime) < autoaimDisengageTime;
+
+        let shouldAssistAim =
+          state.time -. startAimTime < autoaimDisengageTime;
         if (shouldAssistAim) {
-          let (dx, dy, dot) = List.fold_left(
+          let (dx, dy, dot) =
+            List.fold_left(
               ((closestX, closestY, closestDot), (x, y)) => {
                 let xf = float_of_int(x);
                 let yf = float_of_int(y);
@@ -538,12 +557,15 @@ let draw = (state, env) => {
             Draw.stroke(Constants.blue, env);
             Draw.linef(
               ~p1=(halfWindowWf, halfWindowHf),
-              ~p2=(halfWindowWf -. moveX *. 100., halfWindowHf -. moveY *. 100.),
+              ~p2=(
+                halfWindowWf -. moveX *. 100.,
+                halfWindowHf -. moveY *. 100.,
+              ),
               env,
             );
-          }
-        }
-        Draw.popStyle(env)
+          };
+        };
+        Draw.popStyle(env);
       };
     };
   | _ => ()
