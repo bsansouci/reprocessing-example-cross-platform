@@ -16,7 +16,7 @@ type aimingPacketT = {
 type aimT =
   | Nothing
   | Aiming(aimingPacketT)
-  | Moving((float, float), (float, float), float);
+  | Moving((float, float), (float, float), float, float);
 
 type bulletT = {
   x: float,
@@ -26,11 +26,37 @@ type bulletT = {
 };
 
 type splashT = {
-  x: int,
-  y: int,
+  x: float,
+  y: float,
   rotation: float,
-  width: int,
-  height: int,
+  width: float,
+  height: float,
+};
+
+type vec2 = {
+  x: float,
+  y: float,
+};
+
+type enemyT = {
+  pos: vec2,
+  speed: float,
+  error: vec2,
+};
+
+type soundsT = {enemyDeathSound: soundT};
+
+type weaponKindT =
+  | ShootsBehindYou
+  | Pistol
+  | Sniper;
+
+type weaponsT = {
+  length: int,
+  moveTime: float,
+  playerTravelDistance: float,
+  bulletSpeed: float,
+  kind: weaponKindT,
 };
 
 type state = {
@@ -38,25 +64,24 @@ type state = {
   y: float,
   time: float,
   aim: aimT,
-  stuff: list((int, int)),
+  enemies: list(enemyT),
   splashes: list(splashT),
   bg: imageT,
   assetMap: AssetMap.t(imageT),
   bullets: list(bulletT),
   experiment: int,
   prevMouseState: bool,
+  sounds: soundsT,
+  currentWeaponIndex: int,
+  weapons: array(weaponsT),
 };
 
 let drawWithRotation = (img, ~pos as (x, y), ~height, ~width, ~rot, env) => {
   Draw.pushMatrix(env);
-  Draw.translate(~x=float_of_int(x), ~y=float_of_int(y), env);
+  Draw.translate(~x, ~y, env);
   Draw.rotate(rot, env);
-  Draw.translate(
-    ~x=float_of_int(width) /. (-2.),
-    ~y=float_of_int(height) /. (-2.),
-    env,
-  );
-  Draw.image(img, ~pos=(0, 0), ~height, ~width, env);
+  Draw.translate(~x=width /. (-2.), ~y=height /. (-2.), env);
+  Draw.imagef(img, ~pos=(0., 0.), ~height, ~width, env);
   Draw.popMatrix(env);
 };
 
@@ -99,23 +124,29 @@ let splitListAt = (li, index) => {
   loop([], li, 0);
 };
 
-let bulletCollidesWithPineapple = ({x, y}: bulletT, pineapples) => {
-  let rec loop = (pinesapplesRemaining, index) =>
-    switch (pinesapplesRemaining) {
+let bulletCollidesWithEnemies = ({x, y}: bulletT, enemies) => {
+  let rec loop = (enemiesRemaining, index) =>
+    switch (enemiesRemaining) {
     | [] => None
-    | [(sx, sy), ...restOfPineapples] =>
-      if (Utils.dist((sx, sy), (int_of_float(x), int_of_float(y))) < 30.) {
+    | [{pos: {x: sx, y: sy}}, ...restOfPineapples] =>
+      if (Utils.distf(~p1=(sx, sy), ~p2=(x, y)) < 30.) {
         Some(index);
       } else {
         loop(restOfPineapples, index + 1);
       }
     };
-  loop(pineapples, 0);
+  loop(enemies, 0);
 };
 
 let moveSpeed = 60.;
 let moveTime = 0.3;
+/* TODO: as you continue to play, this could ramp up */
+let slowMoveDivisor = 5.;
 let possibleFruits = ["banana", "pineapple", "apple", "coconut", "orange"];
+
+let playerSize = 32;
+let playerSizef = 32.;
+let autoaimDisengageTime = 0.8;
 
 let loadAssetMap = (env, possibleFruits) => {
   let files: list((string, string)) =
@@ -132,10 +163,7 @@ let loadAssetMap = (env, possibleFruits) => {
         possibleFruits,
       ),
     );
-  let files = [
-    ("./assets/splash_yellow_small.png", "splash_yellow"),
-    ...files,
-  ];
+  let files = [("./assets/splash_red_small.png", "splash_red"), ...files];
   List.fold_left(
     (assetMap, (filename, name)) =>
       AssetMap.add(name, Draw.loadImage(~filename, env), assetMap),
@@ -144,20 +172,19 @@ let loadAssetMap = (env, possibleFruits) => {
   );
 };
 
-let getOnScreenItems = (state, env) => {
-  let px = int_of_float(state.x);
-  let py = int_of_float(state.y);
-  let padding = 0;
-
+let getVisibleEnemies = (state, env) => {
+  let padding = 0.;
+  let w = float_of_int(Env.width(env));
+  let h = float_of_int(Env.height(env));
   List.filter(
-    ((x, y)) =>
-      abs(px - x) < Env.width(env)
-      / 2
-      + padding
-      && abs(py - y) < Env.height(env)
-      / 2
-      + padding,
-    state.stuff,
+    ({pos: {x, y}}) =>
+      abs_float(state.x -. x) < w
+      /. 2.
+      +. padding
+      && abs_float(state.y -. y) < h
+      /. 2.
+      +. padding,
+    state.enemies,
   );
 };
 
@@ -173,6 +200,15 @@ let bulletIsOutOfRange = (state, bullet: bulletT, env) => {
   && screenCoordY < padding;
 };
 
+let easeInOutCubic = t =>
+  if (t < 0.5) {
+    4. *. t *. t *. t;
+  } else {
+    (t -. 1.) *. (2. *. t -. 2.) *. (2. *. t -. 2.) +. 1.;
+  };
+
+let (/\/) = Filename.concat;
+
 let setup = (size, assetDir, env) => {
   switch (size) {
   | `InitialSize => ()
@@ -182,7 +218,7 @@ let setup = (size, assetDir, env) => {
       ~height=Env.displayHeight(env),
       env,
     )
-  | `Normal => Env.size(~width=500, ~height=500, env)
+  | `Normal => Env.size(~width=375, ~height=667, env)
   };
   Random.init(0);
   {
@@ -190,35 +226,93 @@ let setup = (size, assetDir, env) => {
     y: 0.,
     time: 0.,
     aim: Nothing,
-    /*stuff: [(99, 99), (300, 100), (-100, 100), (-100, -100), (23, -100)],*/
-    stuff:
+
+    enemies:
       initList(100, _ =>
-        (
-          Utils.random(~min=-1000, ~max=1000),
-          Utils.random(~min=-1000, ~max=1000),
-        )
+        {
+          pos: {
+            x: Utils.randomf(~min=-1000., ~max=1000.),
+            y: Utils.randomf(~min=-1000., ~max=1000.),
+          },
+          speed: 50.,
+          error: {
+            x: 0.,
+            y: 0.,
+          },
+        }
       ),
-    bg: Draw.loadImage(~filename="./assets/background.png", env),
+    bg: Draw.loadImage(~filename=assetDir /\/ "background.png", env),
     assetMap: loadAssetMap(env, possibleFruits),
     bullets: [],
     splashes: [],
     experiment: 0,
     prevMouseState: false,
+    sounds: {
+      enemyDeathSound: Env.loadSound(assetDir /\/ "enemyDeathSound.wav", env),
+    },
+    currentWeaponIndex: 0,
+    weapons: [|
+      {
+        length: 10,
+        moveTime: 0.3,
+        playerTravelDistance: 60.,
+        bulletSpeed: 20.,
+        kind: Pistol,
+      },
+      {
+        length: 30,
+        moveTime: 0.6,
+        playerTravelDistance: 120.,
+        bulletSpeed: 30.,
+        kind: Sniper,
+      },
+      {
+        length: 10,
+        moveTime: 0.3,
+        playerTravelDistance: 60.,
+        bulletSpeed: 20.,
+        kind: ShootsBehindYou,
+      },
+    |],
   };
 };
 
 let draw = (state, env) => {
-  let dt = Env.deltaTime(env);
+  let realdt = Env.deltaTime(env);
+
+  let dt =
+    switch (state.aim) {
+    | Moving(_, _, mt, maxTime) =>
+      if (mt < 0.1) {
+        realdt
+        /. Utils.lerpf(
+             ~value=
+               easeInOutCubic(Utils.norm(~value=mt, ~low=0., ~high=0.1)),
+             ~low=slowMoveDivisor,
+             ~high=1.,
+           );
+      } else if (mt >= 0.1 && mt < maxTime -. 0.1) {
+        realdt;
+      } else {
+        realdt
+        /. Utils.lerpf(
+             ~value=
+               easeInOutCubic(
+                 Utils.norm(~value=mt, ~low=maxTime -. 0.1, ~high=maxTime),
+               ),
+             ~low=1.,
+             ~high=slowMoveDivisor,
+           );
+      }
+    | _ => realdt /. slowMoveDivisor
+    };
 
   let halfWindowW = Env.width(env) / 2;
   let halfWindowWf = float_of_int(halfWindowW);
   let halfWindowH = Env.height(env) / 2;
   let halfWindowHf = float_of_int(halfWindowH);
-  let playerSize = 32;
-  let playerSizef = 32.;
-  let autoaimDisengageTime = 0.8;
 
-  let state = {...state, time: state.time +. dt};
+  let state = {...state, time: state.time +. realdt};
 
   /* ======= EVENTS + UPDATES ======= */
   let (mx, my) =
@@ -235,7 +329,7 @@ let draw = (state, env) => {
         if (bulletIsOutOfRange(state, bullet, env)) {
           state;
         } else {
-          switch (bulletCollidesWithPineapple(bullet, state.stuff)) {
+          switch (bulletCollidesWithEnemies(bullet, state.enemies)) {
           | None => {
               ...state,
               bullets: [
@@ -244,31 +338,80 @@ let draw = (state, env) => {
               ],
             }
           | Some(index) =>
-            switch (splitListAt(state.stuff, index)) {
-            | (headList, [(px, py), ...restOfTail]) => {
+            Env.playSound(
+              state.sounds.enemyDeathSound,
+              ~volume=1.0,
+              ~loop=false,
+              env,
+            );
+            switch (splitListAt(state.enemies, index)) {
+            | (headList, [{pos: {x: px, y: py}}, ...restOfTail]) => {
                 ...state,
-                stuff: headList @ restOfTail,
+                enemies: headList @ restOfTail,
                 splashes: [
                   {
                     x: px,
                     y: py,
-                    width: Utils.random(~min=40, ~max=64),
-                    height: Utils.random(~min=40, ~max=64),
+                    width: Utils.randomf(~min=40., ~max=64.),
+                    height: Utils.randomf(~min=40., ~max=64.),
                     rotation: Utils.randomf(~min=0., ~max=Constants.pi),
                   },
                   ...state.splashes,
                 ],
               }
             | _ => assert(false)
-            }
+            };
           };
         },
       {...state, bullets: []},
       state.bullets,
     );
+  let state = {
+    ...state,
+    enemies:
+      List.map(
+        ({pos: {x, y}, speed, error} as enemy) => {
+          let dx = state.x -. x;
+          let dy = state.y -. y;
 
+          let mag = sqrt(dx *. dx +. dy *. dy);
+          let dx = dx /. mag *. speed *. dt;
+          let dy = dy /. mag *. speed *. dt;
+
+          let pos = {
+            x: x +. dx +. error.x *. dt,
+            y: y +. dy +. error.y *. dt,
+          };
+          let error = {
+            x:
+              Utils.constrain(
+                ~amt=error.x +. Utils.randomf(~min=-2., ~max=2.),
+                ~high=speed,
+                ~low=-. speed,
+              ),
+            y:
+              Utils.constrain(
+                ~amt=error.y +. Utils.randomf(~min=-2., ~max=2.),
+                ~high=speed,
+                ~low=-. speed,
+              ),
+          };
+          {...enemy, pos, error};
+        },
+        state.enemies,
+      ),
+  };
+  let (devButtonX, devButtonY) = (60., 60.);
+  let (swapWeaponsButtonWidth, swapWeaponsButtonHeight) = (124., 64.);
+  let (swapWeaponsButtonX, swapWeaponsButtonY) = (
+    float_of_int(Env.width(env)) -. swapWeaponsButtonWidth -. 48.,
+    float_of_int(Env.height(env)) -. swapWeaponsButtonHeight -. 48.,
+  );
   let state =
-    if (state.prevMouseState && !Env.mousePressed(env) && mx < 60. && my < 60.) {
+    if (state.prevMouseState
+        && !Env.mousePressed(env)
+        && mx < devButtonX
+        && my < devButtonY) {
       {
         ...state,
         experiment: (state.experiment + 1) mod (_NUMBER_OF_EXPERIMENTS + 1),
@@ -302,120 +445,185 @@ let draw = (state, env) => {
           aim: Aiming({x: mx, y: my, points: [], startAimTime: state.time}),
         }
       | (Aiming({x: sx, y: sy, points, startAimTime}), false) =>
-        let dx = sx -. mx;
-        let dy = sy -. my;
-        let mag = sqrt(dx *. dx +. dy *. dy);
-
-        let isGestureAFlick = List.length(points) < 10;
-        let (dx, dy) =
-          if (isGestureAFlick) {
-            let numberOfPointsToAverage = 3;
-            let firstCoupleOfPoints =
-              if (List.length(points) >= numberOfPointsToAverage) {
-                let (firstCoupleOfPoints, _) =
-                  splitListAt(points, numberOfPointsToAverage);
-                firstCoupleOfPoints;
+        let maxDeltaFromStartPoint =
+          List.fold_left(
+            (maxDelta, (x, y)) => {
+              let dx = x -. sx;
+              let dy = y -. sy;
+              let mag = sqrt(dx *. dx +. dy *. dy);
+              if (mag > maxDelta) {
+                mag;
               } else {
-                points;
+                maxDelta;
               };
-
-            let (dx, dy) =
-              List.fold_left(
-                ((dx, dy), (x, y)) => (dx +. (sx -. x), dy +. (sy -. y)),
-                (dx, dy),
-                firstCoupleOfPoints,
-              );
-
-            (dx /. mag, dy /. mag);
-          } else {
-            (dx, dy);
-          };
-
-        let shouldAssistAim =
-          state.time -. startAimTime < autoaimDisengageTime;
-        let (dx, dy) =
-          if (shouldAssistAim) {
-            let (dx, dy, _) =
-              List.fold_left(
-                ((closestX, closestY, closestDot), (x, y)) => {
-                  let xf = float_of_int(x);
-                  let yf = float_of_int(y);
-
-                  let (vecToFruitX, vecToFruitY) = (
-                    state.x -. xf,
-                    state.y -. yf,
-                  );
-                  let mag2 =
-                    sqrt(
-                      vecToFruitX *. vecToFruitX +. vecToFruitY *. vecToFruitY,
-                    );
-                  let dot =
-                    vecToFruitX
-                    /. mag2
-                    *. dx
-                    /. mag
-                    +. vecToFruitY
-                    /. mag2
-                    *. dy
-                    /. mag;
-                  if (dot > closestDot) {
-                    (vecToFruitX, vecToFruitY, dot);
-                  } else {
-                    (closestX, closestY, closestDot);
-                  };
-                },
-                (dx, dy, 0.98),
-                getOnScreenItems(state, env),
-              );
-            (dx, dy);
-          } else {
-            (dx, dy);
-          };
-        if (mag > 20.) {
-          let mag = sqrt(dx *. dx +. dy *. dy);
-          let bulletSpeed = 20.;
-          let destX = state.x -. dx /. mag *. moveSpeed;
-          let destY = state.y -. dy /. mag *. moveSpeed;
+            },
+            0.,
+            points,
+          );
+        if (state.prevMouseState
+            && mx > swapWeaponsButtonX
+            && mx < swapWeaponsButtonX
+            +. swapWeaponsButtonWidth
+            && my > swapWeaponsButtonY
+            && my < swapWeaponsButtonY
+            +. swapWeaponsButtonHeight
+            && state.time
+            -. startAimTime < 0.2
+            && maxDeltaFromStartPoint < 10.) {
           {
             ...state,
-            aim: Moving((state.x, state.y), (destX, destY), moveTime),
-            bullets: [
-              {
-                x: state.x -. dx /. mag *. playerSizef,
-                y: state.y -. dy /. mag *. playerSizef,
-                vx: -. dx /. mag *. bulletSpeed,
-                vy: -. dy /. mag *. bulletSpeed,
-              },
-              ...state.bullets,
-            ],
+            currentWeaponIndex:
+              (state.currentWeaponIndex + 1) mod Array.length(state.weapons),
           };
         } else {
-          {...state, aim: Nothing};
+          let currentWeapon = state.weapons[state.currentWeaponIndex];
+          let (dx, dy) =
+            if (currentWeapon.kind == ShootsBehindYou) {
+              (mx -. sx, my -. sy);
+            } else {
+              (sx -. mx, sy -. my);
+            };
+
+          let mag = sqrt(dx *. dx +. dy *. dy);
+
+          let isGestureAFlick = List.length(points) < 10;
+          let (dx, dy) =
+            if (isGestureAFlick) {
+              let numberOfPointsToAverage = 3;
+              let firstCoupleOfPoints =
+                if (List.length(points) >= numberOfPointsToAverage) {
+                  let (firstCoupleOfPoints, _) =
+                    splitListAt(points, numberOfPointsToAverage);
+                  firstCoupleOfPoints;
+                } else {
+                  points;
+                };
+
+              let (dx, dy) =
+                List.fold_left(
+                  ((dx, dy), (x, y)) => (dx +. (sx -. x), dy +. (sy -. y)),
+                  (dx, dy),
+                  firstCoupleOfPoints,
+                );
+
+              currentWeapon.kind == ShootsBehindYou ?
+                (-. dx, -. dy) : (dx, dy);
+            } else {
+              (dx, dy);
+            };
+
+          let shouldAssistAim =
+            state.time -. startAimTime < autoaimDisengageTime;
+          let (dx, dy) =
+            if (shouldAssistAim) {
+              let (dx, dy, _) =
+                List.fold_left(
+                  ((closestX, closestY, closestDot), {pos: {x, y}}) => {
+                    let (vecToFruitX, vecToFruitY) = (
+                      state.x -. x,
+                      state.y -. y,
+                    );
+                    let mag2 =
+                      sqrt(
+                        vecToFruitX
+                        *. vecToFruitX
+                        +. vecToFruitY
+                        *. vecToFruitY,
+                      );
+                    let dot =
+                      vecToFruitX
+                      /. mag2
+                      *. dx
+                      /. mag
+                      +. vecToFruitY
+                      /. mag2
+                      *. dy
+                      /. mag;
+                    if (dot > closestDot) {
+                      (vecToFruitX, vecToFruitY, dot);
+                    } else {
+                      (closestX, closestY, closestDot);
+                    };
+                  },
+                  (dx, dy, 0.98),
+                  getVisibleEnemies(state, env),
+                );
+              (dx, dy);
+            } else {
+              (dx, dy);
+            };
+          if (mag > 20.) {
+            let mag = sqrt(dx *. dx +. dy *. dy);
+            let bulletSpeed = currentWeapon.bulletSpeed;
+            /* The movement goes in the other direction when the player's holding the
+               ShootsBehindYou gun. Everything other than the movement (the aim and bullet) goes in the
+               normal direction. */
+            let (destX, destY) =
+              if (currentWeapon.kind == ShootsBehindYou) {
+                (
+                  state.x +. dx /. mag *. currentWeapon.playerTravelDistance,
+                  state.y +. dy /. mag *. currentWeapon.playerTravelDistance,
+                );
+              } else {
+                (
+                  state.x -. dx /. mag *. currentWeapon.playerTravelDistance,
+                  state.y -. dy /. mag *. currentWeapon.playerTravelDistance,
+                );
+              };
+            {
+              ...state,
+              aim:
+                Moving(
+                  (state.x, state.y),
+                  (destX, destY),
+                  0.,
+                  currentWeapon.moveTime,
+                ),
+              bullets: [
+                {
+                  x: state.x -. dx /. mag *. playerSizef,
+                  y: state.y -. dy /. mag *. playerSizef,
+                  vx: -. dx /. mag *. bulletSpeed,
+                  vy: -. dy /. mag *. bulletSpeed,
+                },
+                ...state.bullets,
+              ],
+            };
+          } else {
+            {...state, aim: Nothing};
+          };
         };
-      | (Moving(_prev, (destX, destY), time), _) when time <= 0. => {
+
+      | (Moving(_prev, (destX, destY), time, maxTime), _)
+          when time >= maxTime => {
           ...state,
           aim: Nothing,
           x: destX,
           y: destY,
         }
       | (
-          Moving((startX, startY) as start, (destX, destY) as dest, time),
+          Moving(
+            (startX, startY) as start,
+            (destX, destY) as dest,
+            time,
+            maxTime,
+          ),
           _,
         ) =>
         let lerpAmt =
-          Utils.constrain(~amt=time /. moveTime, ~low=0., ~high=1.);
+          Utils.constrain(~amt=time /. maxTime, ~low=0., ~high=1.);
         {
           ...state,
-          aim: Moving(start, dest, time -. dt),
-          x: Utils.lerpf(~low=destX, ~high=startX, ~value=lerpAmt),
-          y: Utils.lerpf(~low=destY, ~high=startY, ~value=lerpAmt),
+          aim: Moving(start, dest, time +. realdt, maxTime),
+          x: Utils.lerpf(~low=startX, ~high=destX, ~value=lerpAmt),
+          y: Utils.lerpf(~low=startY, ~high=destY, ~value=lerpAmt),
         };
       };
     };
 
   /* ======= DRAWING ======= */
   if (state.experiment == _DEBUG) {
-    Draw.background(Utils.color(120, 120, 220, 255), env);
+    Draw.background(Utils.color(~r=255, ~g=220, ~b=200, ~a=255), env);
   } else {
     Draw.background(Constants.white, env);
   };
@@ -426,7 +634,7 @@ let draw = (state, env) => {
   List.iter(
     ({x, y, width, height, rotation}) =>
       drawWithRotation(
-        AssetMap.find("splash_yellow", state.assetMap),
+        AssetMap.find("splash_red", state.assetMap),
         ~pos=(x, y),
         ~width,
         ~height,
@@ -437,16 +645,16 @@ let draw = (state, env) => {
   );
 
   List.iter(
-    pos =>
+    ({pos: {x, y}}) =>
       drawWithRotation(
         AssetMap.find("pineapple", state.assetMap),
-        ~pos,
-        ~width=54,
-        ~height=74,
+        ~pos=(x, y),
+        ~width=54.,
+        ~height=74.,
         ~rot=0.,
         env,
       ),
-    state.stuff,
+    state.enemies,
   );
 
   if (state.experiment == _DEBUG) {
@@ -455,8 +663,9 @@ let draw = (state, env) => {
     Draw.strokeWeight(1, env);
     Draw.stroke(Constants.red, env);
     List.iter(
-      ((x, y)) => Draw.ellipse(~center=(x, y), ~radx=4, ~rady=4, env),
-      getOnScreenItems(state, env),
+      ({pos: {x, y}}) =>
+        Draw.ellipsef(~center=(x, y), ~radx=4., ~rady=4., env),
+      getVisibleEnemies(state, env),
     );
     Draw.popStyle(env);
   };
@@ -486,14 +695,21 @@ let draw = (state, env) => {
   /* Draw the aim line */
   switch (state.aim, Env.mousePressed(env)) {
   | (Aiming({x: sx, y: sy, points, startAimTime}), true) =>
-    let dx = sx -. mx;
-    let dy = sy -. my;
+    let currentWeapon = state.weapons[state.currentWeaponIndex];
+    let (dx, dy) =
+      if (currentWeapon.kind == ShootsBehindYou) {
+        (mx -. sx, my -. sy);
+      } else {
+        (sx -. mx, sy -. my);
+      };
     let mag = sqrt(dx *. dx +. dy *. dy);
+
+    let currentWeapon = state.weapons[state.currentWeaponIndex];
 
     if (mag > 20.) {
       let mag = sqrt(dx *. dx +. dy *. dy);
-      let moveX = dx /. mag *. moveSpeed;
-      let moveY = dy /. mag *. moveSpeed;
+      let moveX = dx /. mag *. currentWeapon.playerTravelDistance;
+      let moveY = dy /. mag *. currentWeapon.playerTravelDistance;
       Draw.pushStyle(env);
       Draw.strokeWeight(2, env);
       Draw.stroke(Constants.black, env);
@@ -520,13 +736,10 @@ let draw = (state, env) => {
         if (shouldAssistAim) {
           let (dx, dy, dot) =
             List.fold_left(
-              ((closestX, closestY, closestDot), (x, y)) => {
-                let xf = float_of_int(x);
-                let yf = float_of_int(y);
-
+              ((closestX, closestY, closestDot), {pos: {x, y}}) => {
                 let (vecToFruitX, vecToFruitY) = (
-                  state.x -. xf,
-                  state.y -. yf,
+                  state.x -. x,
+                  state.y -. y,
                 );
                 let mag2 =
                   sqrt(
@@ -548,7 +761,7 @@ let draw = (state, env) => {
                 };
               },
               (dx, dy, 0.),
-              getOnScreenItems(state, env),
+              getVisibleEnemies(state, env),
             );
           if (dot > 0.98) {
             let mag = sqrt(dx *. dx +. dy *. dy);
@@ -578,8 +791,31 @@ let draw = (state, env) => {
     env,
   );
 
+  if (state.currentWeaponIndex == 1) {
+    Draw.fill(Utils.color(~r=120, ~g=160, ~b=240, ~a=100), env);
+  } else if (state.currentWeaponIndex == 2) {
+    Draw.fill(Utils.color(~r=240, ~g=160, ~b=120, ~a=100), env);
+  } else {
+    Draw.fill(Utils.color(~r=120, ~g=240, ~b=160, ~a=100), env);
+  };
+  Draw.stroke(Utils.color(~r=100, ~g=100, ~b=100, ~a=255), env);
+  Draw.rectf(
+    ~pos=(swapWeaponsButtonX, swapWeaponsButtonY),
+    ~width=swapWeaponsButtonWidth,
+    ~height=swapWeaponsButtonHeight,
+    env,
+  );
+  Draw.text(
+    ~body="SWAP",
+    ~pos=(
+      int_of_float(swapWeaponsButtonX) + 18,
+      int_of_float(swapWeaponsButtonY) + 18,
+    ),
+    env,
+  );
+
   {...state, prevMouseState: Env.mousePressed(env)};
 };
 
 let run = (size, assetDir) =>
-  Reprocessing.run(~setup=setup(`FullScreen, "./assets"), ~draw, ());
+  Reprocessing.run(~setup=setup(size, assetDir), ~draw, ());

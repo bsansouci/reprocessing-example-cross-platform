@@ -1,1 +1,1 @@
-Game.run(`FullScreen, "./assets");
+Game.run(`Normal, "./assets");
