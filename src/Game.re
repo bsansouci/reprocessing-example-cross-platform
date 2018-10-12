@@ -63,6 +63,15 @@ type weaponsT = {
   kind: weaponKindT,
 };
 
+type tileKindT =
+  | Floor
+  | Wall;
+
+type tileT = {
+  kind: tileKindT,
+  collision: bool,
+};
+
 type state = {
   x: float,
   y: float,
@@ -71,6 +80,7 @@ type state = {
   enemies: list(enemyT),
   splashes: list(splashT),
   bg: imageT,
+  cachedBackground: imageT,
   assetMap: AssetMap.t(imageT),
   bullets: list(bulletT),
   experiment: int,
@@ -78,6 +88,7 @@ type state = {
   sounds: soundsT,
   currentWeaponIndex: int,
   weapons: array(weaponsT),
+  grid: array(array(tileT)),
 };
 
 let drawWithRotation = (img, ~pos as (x, y), ~height, ~width, ~rot, env) => {
@@ -148,8 +159,10 @@ let moveTime = 0.3;
 let slowMoveDivisor = 5.;
 let possibleFruits = ["banana", "pineapple", "apple", "coconut", "orange"];
 
-let playerSize = 32;
-let playerSizef = 32.;
+let halfPlayerSize = 32;
+let tileSize = halfPlayerSize * 2;
+let tileSizef = float_of_int(tileSize);
+let halfPlayerSizef = float_of_int(halfPlayerSize);
 let autoaimDisengageTime = 0.8;
 
 let loadAssetMap = (env, possibleFruits) => {
@@ -246,7 +259,64 @@ let easeInOutCubic = t =>
     (t -. 1.) *. (2. *. t -. 2.) *. (2. *. t -. 2.) +. 1.;
   };
 
-let (/\/) = Filename.concat;
+let (+/) = Filename.concat;
+
+let gridMap = {|
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+x000000000x000000000x000000000x000000000x00000000x
+x000000000xxxx000000x000000000x000000000x00000000x
+x0000000000000000000x000000000x000000000x00000000x
+xxxxxxxx00xxxx000000x000000000x000000000x00000000x
+x000000000x000000000x000000000x000000000x00000000x
+x000000000x000000000x000000000x000000000x00000000x
+x000000000x000000000x000000000x000000000x00000000x
+x000000000x000000000x000000000x000000000x00000000x
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+|};
+
+let parseMap = map => {
+  let gridWidth = 50;
+  let gridHeight = 10;
+  let grid =
+    Array.make_matrix(
+      gridWidth,
+      gridHeight,
+      {collision: false, kind: Floor},
+    );
+  /*for (i in 0 to (gridHeight - 1)) {
+      grid[0][i] = {collision: true, kind: Wall};
+    };
+    for (i in 0 to (gridWidth - 1)) {
+      grid[i][0] = {collision: true, kind: Wall};
+    };
+    for (i in 0 to (gridHeight - 1)) {
+      grid[gridWidth - 1][i] = {collision: true, kind: Wall};
+    };
+    for (i in 0 to (gridWidth - 1)) {
+      grid[i][gridHeight - 1] = {collision: true, kind: Wall};
+    };*/
+
+  let i = ref(0);
+  /* I think the string starts with a newline. */
+  let j = ref(-1); 
+  for (k in 0 to String.length(map) - 1) {
+    if (map.[k] == '\n') {
+      i := 0;
+      j := j^ + 1;
+    } else {
+      let cell =
+        switch (map.[k]) {
+        | 'x' => 
+        {collision: true, kind: Wall}
+        | '0' => {collision: false, kind: Floor}
+        | _ => {collision: false, kind: Floor}
+        };
+      grid[i^][j^] = cell;
+      i := i^ + 1;
+    };
+  };
+  grid;
+};
 
 let setup = (size, assetDir, env) => {
   switch (size) {
@@ -260,9 +330,12 @@ let setup = (size, assetDir, env) => {
   | `Normal => Env.size(~width=375, ~height=667, env)
   };
   Random.init(0);
+
+  let grid = parseMap(gridMap);
+
   {
-    x: 0.,
-    y: 0.,
+    x: 5. *. tileSizef,
+    y: 2. *. tileSizef,
     time: 0.,
     aim: Nothing,
 
@@ -270,8 +343,8 @@ let setup = (size, assetDir, env) => {
       initList(100, _ =>
         {
           pos: {
-            x: Utils.randomf(~min=-1000., ~max=1000.),
-            y: Utils.randomf(~min=-1000., ~max=1000.),
+            x: Utils.randomf(~min=0., ~max=2000.),
+            y: Utils.randomf(~min=0., ~max=2000.),
           },
           speed: 50.,
           error: {
@@ -280,14 +353,16 @@ let setup = (size, assetDir, env) => {
           },
         }
       ),
-    bg: Draw.loadImage(~filename=assetDir /\/ "background.png", env),
+    bg: Draw.loadImage(~filename=assetDir +/ "background.png", env),
+    cachedBackground:
+      Draw.createImage(~width=100 * tileSize, ~height=100 * tileSize, env),
     assetMap: loadAssetMap(env, possibleFruits),
     bullets: [],
     splashes: [],
     experiment: 0,
     prevMouseState: false,
     sounds: {
-      enemyDeathSound: Env.loadSound(assetDir /\/ "enemyDeathSound.wav", env),
+      enemyDeathSound: Env.loadSound(assetDir +/ "enemyDeathSound.wav", env),
     },
     currentWeaponIndex: 0,
     weapons: [|
@@ -313,6 +388,7 @@ let setup = (size, assetDir, env) => {
         kind: ShootsBehindYou,
       },
     |],
+    grid,
   };
 };
 
@@ -350,7 +426,8 @@ let draw = (state, env) => {
   let halfWindowWf = float_of_int(halfWindowW);
   let halfWindowH = Env.height(env) / 2;
   let halfWindowHf = float_of_int(halfWindowH);
-
+  let (playerXScreen, playerYScreen) = (halfWindowW, halfWindowH + 100);
+  let (playerXScreenf, playerYScreenf) = (float_of_int(playerXScreen), float_of_int(playerYScreen));
   let state = {...state, time: state.time +. realdt};
 
   /* ======= EVENTS + UPDATES ======= */
@@ -441,22 +518,47 @@ let draw = (state, env) => {
       ),
   };
   let (devButtonX, devButtonY) = (60., 60.);
-  let (swapWeaponsButtonWidth, swapWeaponsButtonHeight) = (124., 64.);
-  let (swapWeaponsButtonX, swapWeaponsButtonY) =
+  let (
+    swapWeaponsButtonX,
+    swapWeaponsButtonY,
+    swapWeaponsButtonWidth,
+    swapWeaponsButtonHeight,
+    shouldShowWeaponsButton,
+  ) =
     if (state.experiment == _BUTTON_PLACEMENT1) {
+      let (swapWeaponsButtonWidth, swapWeaponsButtonHeight) = (124., 64.);
       (
         48.,
         float_of_int(Env.height(env)) -. swapWeaponsButtonHeight -. 48.,
+        swapWeaponsButtonWidth,
+        swapWeaponsButtonHeight,
+        true,
       );
     } else if (state.experiment == _BUTTON_PLACEMENT2) {
+      let (swapWeaponsButtonWidth, swapWeaponsButtonHeight) = (124., 64.);
       (
         float_of_int(Env.width(env)) /. 2. -. swapWeaponsButtonWidth /. 2.,
         float_of_int(Env.height(env)) -. swapWeaponsButtonHeight -. 148.,
+        swapWeaponsButtonWidth,
+        swapWeaponsButtonHeight,
+        true,
+      );
+    } else if (state.experiment == _BUTTON_PLACEMENT3) {
+      (
+        0.,
+        0.,
+        float_of_int(Env.width(env)),
+        float_of_int(Env.height(env)),
+        false,
       );
     } else {
+      let (swapWeaponsButtonWidth, swapWeaponsButtonHeight) = (64., 64.);
       (
-        float_of_int(Env.width(env)) -. swapWeaponsButtonWidth -. 48.,
-        float_of_int(Env.height(env)) -. swapWeaponsButtonHeight -. 48.,
+        float_of_int(playerXScreen - halfPlayerSize),
+        float_of_int(playerYScreen - halfPlayerSize),
+        swapWeaponsButtonWidth,
+        swapWeaponsButtonHeight,
+        false,
       );
     };
 
@@ -509,6 +611,8 @@ let draw = (state, env) => {
           && my < swapWeaponsButtonY
           +. swapWeaponsButtonHeight) {
         (
+          /* There's a bug where if you start a gesture while Moving, this will interpret a quick
+             swipe as a tap because we don't allow for interruptible animations right now. */
           {
             ...state,
             currentWeaponIndex:
@@ -612,7 +716,7 @@ let draw = (state, env) => {
                ShootsBehindYou gun. Everything other than the movement (the aim and bullet) goes in the
                normal direction. */
             let (destX, destY) =
-              if (currentWeapon.kind == ShootsBehindYou) {
+              if (currentWeapon.kind == ShootsBehindYou || currentWeapon.kind == Pistol) {
                 (
                   state.x +. dx /. mag *. currentWeapon.playerTravelDistance,
                   state.y +. dy /. mag *. currentWeapon.playerTravelDistance,
@@ -623,19 +727,29 @@ let draw = (state, env) => {
                   state.y -. dy /. mag *. currentWeapon.playerTravelDistance,
                 );
               };
-            {
-              ...state,
-              aim:
+            let (cellX, cellY) = (
+              int_of_float(floor((destX -. tileSizef /. 2. -. halfPlayerSizef) /. tileSizef)),
+              int_of_float(floor((destY -. tileSizef /. 2. -. halfPlayerSizef) /. tileSizef)),
+            );
+            let cell = state.grid[cellX][cellY];
+            let aim =
+              if (cell.collision) {
+                Nothing;
+              } else {
                 Moving(
                   (state.x, state.y),
                   (destX, destY),
                   0.,
                   currentWeapon.moveTime,
-                ),
+                );
+              };
+            {
+              ...state,
+              aim,
               bullets: [
                 {
-                  x: state.x -. dx /. mag *. playerSizef,
-                  y: state.y -. dy /. mag *. playerSizef,
+                  x: state.x -. dx /. mag *. halfPlayerSizef,
+                  y: state.y -. dy /. mag *. halfPlayerSizef,
                   vx: -. dx /. mag *. bulletSpeed,
                   vy: -. dy /. mag *. bulletSpeed,
                 },
@@ -680,12 +794,91 @@ let draw = (state, env) => {
   if (state.experiment == _DEBUG) {
     Draw.background(Utils.color(~r=255, ~g=220, ~b=200, ~a=255), env);
   } else {
-    Draw.background(Constants.white, env);
+    if (state.currentWeaponIndex == 1) {
+      Draw.background(Utils.color(~r=120, ~g=160, ~b=240, ~a=255), env);
+    } else if (state.currentWeaponIndex == 2) {
+      Draw.background(Utils.color(~r=240, ~g=160, ~b=120, ~a=255), env);
+    } else {
+      Draw.background(Constants.white, env);
+    };
   };
 
   Draw.pushMatrix(env);
-  Draw.translate(~x=halfWindowWf -. state.x, ~y=halfWindowHf -. state.y, env);
+  Draw.translate(~x=playerXScreenf -. state.x, ~y=playerYScreenf -. state.y, env);
 
+  /* Draw background once and cache it. */
+  let (backgroundImagePaddingX, backgroundImagePaddingY) = (100, 100);
+  let (backgroundImagePaddingXf, backgroundImagePaddingYf) = (
+    float_of_int(backgroundImagePaddingX),
+    float_of_int(backgroundImagePaddingY),
+  );
+  /*if (!Draw.isImageDrawnTo(state.cachedBackground)) {
+    Draw.withImage(state.cachedBackground, env, env =>*/
+  Array.iteri(
+    (x, column) =>
+      Array.iteri(
+        (y, {kind}) => {
+          let (x, y) = (
+            backgroundImagePaddingXf +. float_of_int(x) *. tileSizef,
+            backgroundImagePaddingYf +. float_of_int(y) *. tileSizef,
+          );
+          let paddingForSomeReason = 50.;
+          let left = state.x -. halfWindowWf -. paddingForSomeReason;
+          let right = state.x +. halfWindowWf +. paddingForSomeReason;
+          let top = state.y -. halfWindowHf -. paddingForSomeReason;
+          let bottom = state.y +. halfWindowHf +. paddingForSomeReason;
+          if (x
+              +. tileSizef > left
+              && x < right
+              && y
+              +. tileSizef > top
+              && y < bottom) {
+            switch (kind) {
+            | Floor => ()
+              /*Draw.fill(Constants.white, env);
+              Draw.stroke(Constants.white, env);
+              Draw.strokeWeight(0, env);
+              Draw.rectf(
+                ~pos=(x -. tileSizef /. 2., y -. tileSizef /. 2.),
+                ~width=tileSizef,
+                ~height=tileSizef,
+                env,
+              );*/
+            | Wall =>
+              Draw.fill(Utils.color(100, 100, 100, 100), env);
+              Draw.stroke(Constants.white, env);
+              Draw.strokeWeight(0, env);
+              Draw.rectf(
+                ~pos=(x -. tileSizef /. 2., y -. tileSizef /. 2.),
+                ~width=tileSizef,
+                ~height=tileSizef,
+                env,
+              );
+              /*drawWithRotation(
+                AssetMap.find("coconut", state.assetMap),
+                ~pos=(x, y),
+                ~width=54.,
+                ~height=74.,
+                ~rot=0.,
+                env,
+              )*/
+            };
+          };
+        },
+        column,
+      ),
+    state.grid,
+  );
+  /*);*/
+  /*} else {
+        /* Draw at that position for padding */
+        Draw.image(
+          state.cachedBackground,
+          ~pos=(- backgroundImagePaddingX, - backgroundImagePaddingY),
+          env,
+        );
+      };
+    */
   List.iter(
     ({x, y, width, height, rotation}) =>
       drawWithRotation(
@@ -762,17 +955,30 @@ let draw = (state, env) => {
     let currentWeapon = state.weapons[state.currentWeaponIndex];
 
     if (mag > 20.) {
-      let mag = sqrt(dx *. dx +. dy *. dy);
       let moveX = dx /. mag *. currentWeapon.playerTravelDistance;
       let moveY = dy /. mag *. currentWeapon.playerTravelDistance;
       Draw.pushStyle(env);
       Draw.strokeWeight(2, env);
       Draw.stroke(Constants.black, env);
       Draw.linef(
-        ~p1=(halfWindowWf, halfWindowHf),
-        ~p2=(halfWindowWf -. moveX, halfWindowHf -. moveY),
+        ~p1=(playerXScreenf, playerYScreenf),
+        ~p2=(playerXScreenf -. moveX, playerYScreenf -. moveY),
         env,
       );
+      
+      if (currentWeapon.kind == ShootsBehindYou) {
+        let (dx, dy) = (sx -. mx, sy -. my);
+        let moveX = dx /. mag *. currentWeapon.playerTravelDistance;
+        let moveY = dy /. mag *. currentWeapon.playerTravelDistance;
+        Draw.strokeWeight(4, env);
+        Draw.stroke(Utils.color(100, 100, 200, 200), env);
+        Draw.linef(
+          ~p1=(playerXScreenf, playerYScreenf),
+          ~p2=(playerXScreenf -. moveX, playerYScreenf -. moveY),
+          env,
+        );  
+      }
+      
       Draw.popStyle(env);
 
       if (state.experiment == _DEBUG) {
@@ -781,8 +987,8 @@ let draw = (state, env) => {
         Draw.stroke(Constants.red, env);
         Draw.linef(~p1=(sx, sy), ~p2=(mx, my), env);
         Draw.linef(
-          ~p1=(halfWindowWf, halfWindowHf),
-          ~p2=(halfWindowWf -. moveX *. 100., halfWindowHf -. moveY *. 100.),
+          ~p1=(playerXScreenf, playerYScreenf),
+          ~p2=(playerXScreenf -. moveX *. 100., playerYScreenf -. moveY *. 100.),
           env,
         );
 
@@ -796,10 +1002,10 @@ let draw = (state, env) => {
             let moveY = dy /. mag *. moveSpeed;
             Draw.stroke(Constants.blue, env);
             Draw.linef(
-              ~p1=(halfWindowWf, halfWindowHf),
+              ~p1=(playerXScreenf, playerYScreenf),
               ~p2=(
-                halfWindowWf -. moveX *. 100.,
-                halfWindowHf -. moveY *. 100.,
+                playerXScreenf -. moveX *. 100.,
+                playerYScreenf -. moveY *. 100.,
               ),
               env,
             );
@@ -807,8 +1013,8 @@ let draw = (state, env) => {
         };
         Draw.ellipsef(
           ~center=(
-            float_of_int(Env.width(env) / 2),
-            float_of_int(Env.height(env) / 2),
+            playerXScreenf,
+            playerYScreenf,
           ),
           ~radx=minFruitDistanceForAimAssist,
           ~rady=minFruitDistanceForAimAssist,
@@ -823,32 +1029,35 @@ let draw = (state, env) => {
   /* Draw the player */
   Draw.image(
     AssetMap.find("apple", state.assetMap),
-    ~pos=(halfWindowW - playerSize, halfWindowH - playerSize),
+    ~pos=(playerXScreen - halfPlayerSize, playerYScreen - halfPlayerSize),
     env,
   );
 
-  if (state.currentWeaponIndex == 1) {
-    Draw.fill(Utils.color(~r=120, ~g=160, ~b=240, ~a=100), env);
-  } else if (state.currentWeaponIndex == 2) {
-    Draw.fill(Utils.color(~r=240, ~g=160, ~b=120, ~a=100), env);
-  } else {
-    Draw.fill(Utils.color(~r=120, ~g=240, ~b=160, ~a=100), env);
+  if (shouldShowWeaponsButton) {
+    if (state.currentWeaponIndex == 1) {
+      Draw.fill(Utils.color(~r=120, ~g=160, ~b=240, ~a=100), env);
+    } else if (state.currentWeaponIndex == 2) {
+      Draw.fill(Utils.color(~r=240, ~g=160, ~b=120, ~a=100), env);
+    } else {
+      Draw.fill(Utils.color(~r=120, ~g=240, ~b=160, ~a=100), env);
+    };
+    Draw.stroke(Utils.color(~r=0, ~g=0, ~b=0, ~a=255), env);
+    Draw.strokeWeight(1, env);
+    Draw.rectf(
+      ~pos=(swapWeaponsButtonX, swapWeaponsButtonY),
+      ~width=swapWeaponsButtonWidth,
+      ~height=swapWeaponsButtonHeight,
+      env,
+    );
+    Draw.text(
+      ~body="SWAP",
+      ~pos=(
+        int_of_float(swapWeaponsButtonX) + 18,
+        int_of_float(swapWeaponsButtonY) + 18,
+      ),
+      env,
+    );
   };
-  Draw.stroke(Utils.color(~r=100, ~g=100, ~b=100, ~a=255), env);
-  Draw.rectf(
-    ~pos=(swapWeaponsButtonX, swapWeaponsButtonY),
-    ~width=swapWeaponsButtonWidth,
-    ~height=swapWeaponsButtonHeight,
-    env,
-  );
-  Draw.text(
-    ~body="SWAP",
-    ~pos=(
-      int_of_float(swapWeaponsButtonX) + 18,
-      int_of_float(swapWeaponsButtonY) + 18,
-    ),
-    env,
-  );
 
   {...state, prevMouseState: Env.mousePressed(env)};
 };
