@@ -1,10 +1,8 @@
 let _DEBUG = 1;
 
-let _NUMBER_OF_EXPERIMENTS = 4;
+let _NUMBER_OF_EXPERIMENTS = 2;
 
-let _BUTTON_PLACEMENT1 = 2;
-let _BUTTON_PLACEMENT2 = 3;
-let _BUTTON_PLACEMENT3 = 4;
+let _JOYSTICK = 2;
 
 open Reprocessing;
 
@@ -46,6 +44,7 @@ type enemyT = {
   pos: vec2,
   speed: float,
   error: vec2,
+  timeUntilNextAttack: float,
 };
 
 type soundsT = {enemyDeathSound: soundT};
@@ -76,6 +75,7 @@ type state = {
   x: float,
   y: float,
   time: float,
+  health: int,
   aim: aimT,
   enemies: list(enemyT),
   splashes: list(splashT),
@@ -156,7 +156,7 @@ let bulletCollidesWithEnemies = ({x, y}: bulletT, enemies) => {
 let moveSpeed = 60.;
 let moveTime = 0.3;
 /* TODO: as you continue to play, this could ramp up */
-let slowMoveDivisor = 5.;
+let slowMoveDivisor = 8.;
 let possibleFruits = ["banana", "pineapple", "apple", "coconut", "orange"];
 
 let halfPlayerSize = 32;
@@ -164,6 +164,7 @@ let tileSize = halfPlayerSize * 2;
 let tileSizef = float_of_int(tileSize);
 let halfPlayerSizef = float_of_int(halfPlayerSize);
 let autoaimDisengageTime = 0.8;
+let enemyAttackDistance = 60.;
 
 let loadAssetMap = (env, possibleFruits) => {
   let files: list((string, string)) =
@@ -219,13 +220,13 @@ let bulletIsOutOfRange = (state, bullet: bulletT, env) => {
 
 let minFruitDistanceForAimAssist = 100.;
 let aimAssist = (state, dx, dy, mag, env) => {
-  let (newdx, newdy, dot) =
+  let (newdx, newdy, cosangle) =
     List.fold_left(
       ((closestX, closestY, closestDot), {pos: {x, y}}) => {
         let (vecToFruitX, vecToFruitY) = (state.x -. x, state.y -. y);
         let distFromPlayerToFruit =
           sqrt(vecToFruitX *. vecToFruitX +. vecToFruitY *. vecToFruitY);
-        let dot =
+        let cosangle =
           vecToFruitX
           /. distFromPlayerToFruit
           *. dx
@@ -234,8 +235,8 @@ let aimAssist = (state, dx, dy, mag, env) => {
           /. distFromPlayerToFruit
           *. dy
           /. mag;
-        if (dot > closestDot) {
-          (vecToFruitX, vecToFruitY, dot);
+        if (cosangle > closestDot) {
+          (vecToFruitX, vecToFruitY, cosangle);
         } else {
           (closestX, closestY, closestDot);
         };
@@ -246,7 +247,7 @@ let aimAssist = (state, dx, dy, mag, env) => {
 
   let distFromPlayerToFruit = sqrt(newdx *. newdx +. newdy *. newdy);
   if (distFromPlayerToFruit > minFruitDistanceForAimAssist) {
-    (newdx, newdy, dot);
+    (newdx, newdy, cosangle);
   } else {
     (dx, dy, 0.98);
   };
@@ -338,7 +339,7 @@ let setup = (size, assetDir, env) => {
     y: 2. *. tileSizef,
     time: 0.,
     aim: Nothing,
-
+    health: 100,
     enemies:
       initList(100, _ =>
         {
@@ -351,6 +352,7 @@ let setup = (size, assetDir, env) => {
             x: 0.,
             y: 0.,
           },
+          timeUntilNextAttack: 0.
         }
       ),
     bg: Draw.loadImage(~filename=assetDir +/ "background.png", env),
@@ -421,23 +423,32 @@ let draw = (state, env) => {
       }
     | _ => realdt /. slowMoveDivisor
     };
-
-  let halfWindowW = Env.width(env) / 2;
+  
+  let windowW = Env.width(env);
+  let windowWf = float_of_int(windowW);
+  let windowH = Env.height(env);
+  let windowHf = float_of_int(windowH);
+  
+  let halfWindowW = windowW / 2;
   let halfWindowWf = float_of_int(halfWindowW);
-  let halfWindowH = Env.height(env) / 2;
+  let halfWindowH = windowH / 2;
   let halfWindowHf = float_of_int(halfWindowH);
   let (playerXScreen, playerYScreen) = (halfWindowW, halfWindowH + 100);
   let (playerXScreenf, playerYScreenf) = (float_of_int(playerXScreen), float_of_int(playerYScreen));
   let state = {...state, time: state.time +. realdt};
 
   /* ======= EVENTS + UPDATES ======= */
-  let (mx, my) =
+  let (mx, my, mx2, my2, numOfTouches) =
     switch (Env.changedTouches(env)) {
     | [] =>
       let (mx, my) = Env.mouse(env);
-      (float_of_int(mx), float_of_int(my));
-    | [{x, y}, ...rest] => (x, y)
+      (float_of_int(mx), float_of_int(my), 0., 0., 1);
+    | [{x, y}] => (x, y, 0., 0., 1)
+    | [{x, y}, {x: x2, y: y2}, ...rest] => (x, y, x2, y2, 2 + List.length(rest))
     };
+  
+  let visibleEnemies = getVisibleEnemies(state, env);
+  
   /* Bullet collision detection and response */
   let state =
     List.fold_left(
@@ -486,7 +497,7 @@ let draw = (state, env) => {
     ...state,
     enemies:
       List.map(
-        ({pos: {x, y}, speed, error} as enemy) => {
+        ({pos: {x, y}, speed, error, timeUntilNextAttack} as enemy) => {
           let dx = state.x -. x;
           let dy = state.y -. y;
 
@@ -512,56 +523,42 @@ let draw = (state, env) => {
                 ~low=-. speed,
               ),
           };
-          {...enemy, pos, error};
+          {...enemy, pos, error, timeUntilNextAttack: max(0., timeUntilNextAttack -. dt)};
         },
         state.enemies,
       ),
   };
+  
+  let state = List.fold_left(({health} as innerState, {pos: {x, y}, timeUntilNextAttack} as enemy) => {
+    if (timeUntilNextAttack <= 0.) {
+      let dx = state.x -. x;
+      let dy = state.y -. y;
+      let mag = sqrt(dx *. dx +. dy *. dy);
+      if (mag < enemyAttackDistance) {
+        {...innerState, health: health - 5, enemies: List.map((e) => e == enemy ? {...e, timeUntilNextAttack: 1.} : e, state.enemies)};
+      } else {
+        innerState
+      };
+    } else {
+      innerState
+    };
+  }, state, state.enemies);
+  
   let (devButtonX, devButtonY) = (60., 60.);
+      let (swapWeaponsButtonWidth, swapWeaponsButtonHeight) = (64., 64.);
   let (
     swapWeaponsButtonX,
     swapWeaponsButtonY,
-    swapWeaponsButtonWidth,
-    swapWeaponsButtonHeight,
-    shouldShowWeaponsButton,
   ) =
-    if (state.experiment == _BUTTON_PLACEMENT1) {
-      let (swapWeaponsButtonWidth, swapWeaponsButtonHeight) = (124., 64.);
-      (
-        48.,
-        float_of_int(Env.height(env)) -. swapWeaponsButtonHeight -. 48.,
-        swapWeaponsButtonWidth,
-        swapWeaponsButtonHeight,
-        true,
-      );
-    } else if (state.experiment == _BUTTON_PLACEMENT2) {
-      let (swapWeaponsButtonWidth, swapWeaponsButtonHeight) = (124., 64.);
-      (
-        float_of_int(Env.width(env)) /. 2. -. swapWeaponsButtonWidth /. 2.,
-        float_of_int(Env.height(env)) -. swapWeaponsButtonHeight -. 148.,
-        swapWeaponsButtonWidth,
-        swapWeaponsButtonHeight,
-        true,
-      );
-    } else if (state.experiment == _BUTTON_PLACEMENT3) {
-      (
-        0.,
-        0.,
-        float_of_int(Env.width(env)),
-        float_of_int(Env.height(env)),
-        false,
-      );
-    } else {
-      let (swapWeaponsButtonWidth, swapWeaponsButtonHeight) = (64., 64.);
       (
         float_of_int(playerXScreen - halfPlayerSize),
         float_of_int(playerYScreen - halfPlayerSize),
-        swapWeaponsButtonWidth,
-        swapWeaponsButtonHeight,
-        false,
       );
-    };
-
+  let state = if (numOfTouches > 1) {
+    state
+  } else {
+    state
+  };
   let (state, didTapOnSwapButton) =
     switch (state.aim, Env.mousePressed(env)) {
     | (Aiming({x: sx, y: sy, points, startAimTime}), false)
@@ -625,6 +622,8 @@ let draw = (state, env) => {
       }
     | _ => (state, false)
     };
+  
+  let (aimStartXf, aimStartYf) = (windowWf -. 120., windowHf -. 120.);
   let state =
     if (state.prevMouseState
         && !Env.mousePressed(env)
@@ -637,26 +636,48 @@ let draw = (state, env) => {
     } else {
       switch (state.aim, Env.mousePressed(env)) {
       | (Aiming({x: sx, y: sy, points} as aiming), true) =>
-        let dx = sx -. mx;
-        let dy = sy -. my;
-        let mag = sqrt(dx *. dx +. dy *. dy);
-        let aimCap = 50.;
-        let (sx, sy) =
-          if (mag > aimCap) {
-            (mx +. dx /. mag *. 50., my +. dy /. mag *. 50.);
+        if (state.experiment == _JOYSTICK) {
+          let dx = aimStartXf -. mx;
+          let dy = aimStartYf -. my;
+          let mag = sqrt(dx *. dx +. dy *. dy);
+          let (x, y) = if (mag > 30.) {
+            (state.x -. dx *. realdt, state.y -. dy *. realdt)
           } else {
-            (sx, sy);
+            (state.x, state.y)
           };
-        {
-          ...state,
-          aim:
-            Aiming({
-              ...aiming,
-              x: sx,
-              y: sy,
-              points: [(mx, my), ...points],
-            }),
-        };
+          {
+            ...state,
+            x, y,
+            aim:
+              Aiming({
+                ...aiming,
+                x: sx,
+                y: sy,
+                points: [(mx, my), ...points],
+              }),
+          }  
+        } else {
+          let dx = sx -. mx;
+          let dy = sy -. my;
+          let aimCap = 50.;
+          let mag = sqrt(dx *. dx +. dy *. dy);
+          let (sx, sy) =
+            if (mag > aimCap) {
+              (mx +. dx /. mag *. 50., my +. dy /. mag *. 50.);
+            } else {
+              (sx, sy);
+            };
+          {
+            ...state,
+            aim:
+              Aiming({
+                ...aiming,
+                x: sx,
+                y: sy,
+                points: [(mx, my), ...points],
+              }),
+          };
+        }
       | (Nothing, false) => state
       | (Nothing, true) => {
           ...state,
@@ -665,6 +686,11 @@ let draw = (state, env) => {
       | (Aiming({x: sx, y: sy, points, startAimTime}), false) =>
         if (!didTapOnSwapButton) {
           let currentWeapon = state.weapons[state.currentWeaponIndex];
+          let (sx, sy) = if (state.experiment == _JOYSTICK) {
+            (aimStartXf,aimStartYf)
+          } else {
+            (sx ,sy)
+          };
           let (dx, dy) =
             if (currentWeapon.kind == ShootsBehindYou) {
               (mx -. sx, my -. sy);
@@ -689,20 +715,20 @@ let draw = (state, env) => {
 
               let (dx, dy) =
                 List.fold_left(
-                  ((dx, dy), (x, y)) => (dx +. (sx -. x), dy +. (sy -. y)),
+                  ((dx, dy), (x, y)) => (dx +. (currentWeapon.kind == ShootsBehindYou ? (x -. sx) : (sx -. x)), dy +. (currentWeapon.kind == ShootsBehindYou ? (y -. sy) : (sy -. y))),
                   (dx, dy),
                   firstCoupleOfPoints,
                 );
-
-              currentWeapon.kind == ShootsBehindYou ?
-                (-. dx, -. dy) : (dx, dy);
+              
+              
+              (dx /. float_of_int(numberOfPointsToAverage), dy /. float_of_int(numberOfPointsToAverage));
             } else {
               (dx, dy);
             };
 
           let shouldAssistAim =
             state.time -. startAimTime < autoaimDisengageTime;
-          let (dx, dy) =
+          let (aimAssistdx, aimAssistdy) =
             if (shouldAssistAim) {
               let (dx, dy, _) = aimAssist(state, dx, dy, mag, env);
               (dx, dy);
@@ -711,12 +737,12 @@ let draw = (state, env) => {
             };
           if (mag > 20.) {
             let mag = sqrt(dx *. dx +. dy *. dy);
+            let aimAssistmag = sqrt(aimAssistdx *. aimAssistdx +. aimAssistdy *. aimAssistdy);
             let bulletSpeed = currentWeapon.bulletSpeed;
             /* The movement goes in the other direction when the player's holding the
-               ShootsBehindYou gun. Everything other than the movement (the aim and bullet) goes in the
-               normal direction. */
+               ShootsBehindYou gun. Everything other than the movement (the aim and bullet) goes in the normal direction. */
             let (destX, destY) =
-              if (currentWeapon.kind == ShootsBehindYou || currentWeapon.kind == Pistol) {
+              if (currentWeapon.kind == ShootsBehindYou) {
                 (
                   state.x +. dx /. mag *. currentWeapon.playerTravelDistance,
                   state.y +. dy /. mag *. currentWeapon.playerTravelDistance,
@@ -736,22 +762,28 @@ let draw = (state, env) => {
               if (cell.collision) {
                 Nothing;
               } else {
-                Moving(
-                  (state.x, state.y),
-                  (destX, destY),
-                  0.,
-                  currentWeapon.moveTime,
-                );
+                if (state.experiment == _JOYSTICK) {
+                  Nothing;
+                  
+                } else {
+                  
+                  Moving(
+                    (state.x, state.y),
+                    (destX, destY),
+                    0.,
+                    currentWeapon.moveTime,
+                  );
+                }
               };
             {
               ...state,
               aim,
               bullets: [
                 {
-                  x: state.x -. dx /. mag *. halfPlayerSizef,
-                  y: state.y -. dy /. mag *. halfPlayerSizef,
-                  vx: -. dx /. mag *. bulletSpeed,
-                  vy: -. dy /. mag *. bulletSpeed,
+                  x: state.x -. aimAssistdx /. aimAssistmag *. halfPlayerSizef,
+                  y: state.y -. aimAssistdy /. aimAssistmag *. halfPlayerSizef,
+                  vx: -. aimAssistdx /. aimAssistmag *. bulletSpeed,
+                  vy: -. aimAssistdy /. aimAssistmag *. bulletSpeed,
                 },
                 ...state.bullets,
               ],
@@ -789,8 +821,9 @@ let draw = (state, env) => {
         };
       };
     };
-
+  /*print_endline("state.health: " ++ string_of_int(state.health));*/
   /* ======= DRAWING ======= */
+  Draw.tint(Utils.color(255, (state.health + 155), (state.health + 155), 255), env);
   if (state.experiment == _DEBUG) {
     Draw.background(Utils.color(~r=255, ~g=220, ~b=200, ~a=255), env);
   } else {
@@ -908,11 +941,20 @@ let draw = (state, env) => {
   if (state.experiment == _DEBUG) {
     /* Draw pineapple dots */
     Draw.pushStyle(env);
-    Draw.strokeWeight(1, env);
-    Draw.stroke(Constants.red, env);
     List.iter(
-      ({pos: {x, y}}) =>
-        Draw.ellipsef(~center=(x, y), ~radx=4., ~rady=4., env),
+      ({pos: {x, y}}) => {
+        let dx = state.x -. x;
+        let dy = state.y -. y;
+        let mag = sqrt(dx *. dx +. dy *. dy);
+        if (mag < enemyAttackDistance) {
+          Draw.strokeWeight(2, env);
+          Draw.stroke(Constants.green, env);
+        } else {
+          Draw.strokeWeight(1, env);
+          Draw.stroke(Constants.red, env);
+        };
+        Draw.ellipsef(~center=(x, y), ~radx=4., ~rady=4., env)
+      },
       getVisibleEnemies(state, env),
     );
     Draw.popStyle(env);
@@ -944,6 +986,11 @@ let draw = (state, env) => {
   switch (state.aim, Env.mousePressed(env)) {
   | (Aiming({x: sx, y: sy, points, startAimTime}), true) =>
     let currentWeapon = state.weapons[state.currentWeaponIndex];
+    let (sx, sy) = if (state.experiment == _JOYSTICK) {
+      (aimStartXf, aimStartYf)
+    } else {
+      (sx, sy)
+    };
     let (dx, dy) =
       if (currentWeapon.kind == ShootsBehindYou) {
         (mx -. sx, my -. sy);
@@ -968,6 +1015,8 @@ let draw = (state, env) => {
       
       if (currentWeapon.kind == ShootsBehindYou) {
         let (dx, dy) = (sx -. mx, sy -. my);
+      let   mag = sqrt(dx *. dx +. dy *. dy);
+        
         let moveX = dx /. mag *. currentWeapon.playerTravelDistance;
         let moveY = dy /. mag *. currentWeapon.playerTravelDistance;
         Draw.strokeWeight(4, env);
@@ -980,7 +1029,7 @@ let draw = (state, env) => {
       }
       
       Draw.popStyle(env);
-
+      
       if (state.experiment == _DEBUG) {
         Draw.pushStyle(env);
         Draw.strokeWeight(1, env);
@@ -992,6 +1041,8 @@ let draw = (state, env) => {
           env,
         );
 
+        Draw.ellipsef(~center=(windowWf -. 120., windowHf -. 120.), ~radx=60., ~rady=60., env)
+        
         let shouldAssistAim =
           state.time -. startAimTime < autoaimDisengageTime;
         if (shouldAssistAim) {
@@ -1025,6 +1076,14 @@ let draw = (state, env) => {
     };
   | _ => ()
   };
+  
+  if (state.experiment == _JOYSTICK) {
+        Draw.pushStyle(env);
+        Draw.stroke(Constants.red, env);
+        Draw.strokeWeight(1, env);
+        Draw.ellipsef(~center=(windowWf -. 120., windowHf -. 120.), ~radx=60., ~rady=60., env)
+        Draw.popStyle(env);
+      };
 
   /* Draw the player */
   Draw.image(
@@ -1032,32 +1091,6 @@ let draw = (state, env) => {
     ~pos=(playerXScreen - halfPlayerSize, playerYScreen - halfPlayerSize),
     env,
   );
-
-  if (shouldShowWeaponsButton) {
-    if (state.currentWeaponIndex == 1) {
-      Draw.fill(Utils.color(~r=120, ~g=160, ~b=240, ~a=100), env);
-    } else if (state.currentWeaponIndex == 2) {
-      Draw.fill(Utils.color(~r=240, ~g=160, ~b=120, ~a=100), env);
-    } else {
-      Draw.fill(Utils.color(~r=120, ~g=240, ~b=160, ~a=100), env);
-    };
-    Draw.stroke(Utils.color(~r=0, ~g=0, ~b=0, ~a=255), env);
-    Draw.strokeWeight(1, env);
-    Draw.rectf(
-      ~pos=(swapWeaponsButtonX, swapWeaponsButtonY),
-      ~width=swapWeaponsButtonWidth,
-      ~height=swapWeaponsButtonHeight,
-      env,
-    );
-    Draw.text(
-      ~body="SWAP",
-      ~pos=(
-        int_of_float(swapWeaponsButtonX) + 18,
-        int_of_float(swapWeaponsButtonY) + 18,
-      ),
-      env,
-    );
-  };
 
   {...state, prevMouseState: Env.mousePressed(env)};
 };
