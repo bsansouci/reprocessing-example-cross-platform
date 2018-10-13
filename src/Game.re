@@ -913,10 +913,10 @@ let draw = (state, env) => {
     state.grid,
   );
   
-  /*if (state.deathTime > 0.) {*/
+  if (state.deathTime > 0.) {
     Draw.text(~body="REVIVED!", ~pos=(5 * tileSize - Draw.textWidth(~body="REVIVED!", env) / 2, -200), env);
     Draw.text(~body="go fight", ~pos=(5 * tileSize - Draw.textWidth(~body="go fight", env) / 2 - 2, -150), env);
-  /*};*/
+  };
   /*);*/
   /*} else {
         /* Draw at that position for padding */
@@ -1092,8 +1092,6 @@ let draw = (state, env) => {
   | _ => ()
   };
   
-  /*Draw.stroke(Utils.color(30,100, 30, 255), env);
-  Draw.strokeWeight(2, env);*/
   Draw.fill(Utils.color(124, 10, 2, 255), env);
   Draw.rectf(~pos=(22., 22.), ~width=104., ~height=28., env);
   Draw.fill(Utils.color(30,100, 30, 255), env);
