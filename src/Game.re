@@ -76,19 +76,28 @@ type state = {
   y: float,
   time: float,
   health: int,
+  
   aim: aimT,
+  
   enemies: list(enemyT),
   splashes: list(splashT),
+  bullets: list(bulletT),
+  
   bg: imageT,
   cachedBackground: imageT,
   assetMap: AssetMap.t(imageT),
-  bullets: list(bulletT),
-  experiment: int,
-  prevMouseState: bool,
   sounds: soundsT,
+  
+  prevMouseState: bool,
+  
   currentWeaponIndex: int,
   weapons: array(weaponsT),
+  
   grid: array(array(tileT)),
+  
+  deathTime: float,
+  
+  experiment: int,
 };
 
 let drawWithRotation = (img, ~pos as (x, y), ~height, ~width, ~rot, env) => {
@@ -181,7 +190,7 @@ let loadAssetMap = (env, possibleFruits) => {
         possibleFruits,
       ),
     );
-  let files = [("./assets/splash_red_small.png", "splash_red"), ...files];
+  let files = [("./assets/splash_red_small.png", "splash_red"), ("./assets/robot1_small.png", "robot1"), ("./assets/player_small.png", "player"), ...files];
   List.fold_left(
     (assetMap, (filename, name)) =>
       AssetMap.add(name, Draw.loadImage(~filename, env), assetMap),
@@ -367,6 +376,7 @@ let setup = (size, assetDir, env) => {
       enemyDeathSound: Env.loadSound(assetDir +/ "enemyDeathSound.wav", env),
     },
     currentWeaponIndex: 0,
+    deathTime: 0.,
     weapons: [|
       {
         length: 10,
@@ -435,7 +445,7 @@ let draw = (state, env) => {
   let halfWindowHf = float_of_int(halfWindowH);
   let (playerXScreen, playerYScreen) = (halfWindowW, halfWindowH + 100);
   let (playerXScreenf, playerYScreenf) = (float_of_int(playerXScreen), float_of_int(playerYScreen));
-  let state = {...state, time: state.time +. realdt};
+  let state = {...state, time: state.time +. realdt, deathTime: max(0., state.deathTime -. realdt)};
 
   /* ======= EVENTS + UPDATES ======= */
   let (mx, my, mx2, my2, numOfTouches) =
@@ -535,7 +545,7 @@ let draw = (state, env) => {
       let dy = state.y -. y;
       let mag = sqrt(dx *. dx +. dy *. dy);
       if (mag < enemyAttackDistance) {
-        {...innerState, health: health - 5, enemies: List.map((e) => e == enemy ? {...e, timeUntilNextAttack: 1.} : e, state.enemies)};
+        {...innerState, health: health - 10, enemies: List.map((e) => e == enemy ? {...e, timeUntilNextAttack: 1.} : e, state.enemies)};
       } else {
         innerState
       };
@@ -878,7 +888,7 @@ let draw = (state, env) => {
                 env,
               );*/
             | Wall =>
-              Draw.fill(Utils.color(100, 100, 100, 100), env);
+              Draw.fill(Utils.color(124, 10, 2, 255), env);
               Draw.stroke(Constants.white, env);
               Draw.strokeWeight(0, env);
               Draw.rectf(
@@ -902,6 +912,11 @@ let draw = (state, env) => {
       ),
     state.grid,
   );
+  
+  /*if (state.deathTime > 0.) {*/
+    Draw.text(~body="REVIVED!", ~pos=(5 * tileSize - Draw.textWidth(~body="REVIVED!", env) / 2, -200), env);
+    Draw.text(~body="go fight", ~pos=(5 * tileSize - Draw.textWidth(~body="go fight", env) / 2 - 2, -150), env);
+  /*};*/
   /*);*/
   /*} else {
         /* Draw at that position for padding */
@@ -928,10 +943,10 @@ let draw = (state, env) => {
   List.iter(
     ({pos: {x, y}}) =>
       drawWithRotation(
-        AssetMap.find("pineapple", state.assetMap),
+        AssetMap.find("robot1", state.assetMap),
         ~pos=(x, y),
-        ~width=54.,
-        ~height=74.,
+        ~width=224. /. 5.,
+        ~height=344. /. 5.,
         ~rot=0.,
         env,
       ),
@@ -1077,6 +1092,13 @@ let draw = (state, env) => {
   | _ => ()
   };
   
+  /*Draw.stroke(Utils.color(30,100, 30, 255), env);
+  Draw.strokeWeight(2, env);*/
+  Draw.fill(Utils.color(124, 10, 2, 255), env);
+  Draw.rectf(~pos=(22., 22.), ~width=104., ~height=28., env);
+  Draw.fill(Utils.color(30,100, 30, 255), env);
+  Draw.rectf(~pos=(24., 24.), ~width=float_of_int(state.health), ~height=24., env);
+  
   if (state.experiment == _JOYSTICK) {
         Draw.pushStyle(env);
         Draw.stroke(Constants.red, env);
@@ -1087,13 +1109,52 @@ let draw = (state, env) => {
 
   /* Draw the player */
   Draw.image(
-    AssetMap.find("apple", state.assetMap),
+    AssetMap.find("player", state.assetMap),
     ~pos=(playerXScreen - halfPlayerSize, playerYScreen - halfPlayerSize),
+    ~width=220 / 5, 
+    ~height=311 / 5,
     env,
   );
+  
+  if (state.health <= 0) {
+    let grid = parseMap(gridMap);
 
-  {...state, prevMouseState: Env.mousePressed(env)};
+  {
+    ...state,
+    deathTime: 3.,
+    x: 5. *. tileSizef,
+    y: 2. *. tileSizef,
+    time: 0.,
+    aim: Nothing,
+    health: 100,
+    enemies:
+      initList(100, _ =>
+        {
+          pos: {
+            x: Utils.randomf(~min=0., ~max=2000.),
+            y: Utils.randomf(~min=0., ~max=2000.),
+          },
+          speed: 50.,
+          error: {
+            x: 0.,
+            y: 0.,
+          },
+          timeUntilNextAttack: 0.
+        }
+      ),
+    assetMap: loadAssetMap(env, possibleFruits),
+    bullets: [],
+    splashes: [],
+    experiment: 0,
+    prevMouseState: false,
+    currentWeaponIndex: 0,
+    grid,
+  };
+  } else {
+    {...state, prevMouseState: Env.mousePressed(env)};
+  }
 };
+
 
 let run = (size, assetDir) =>
   Reprocessing.run(~setup=setup(size, assetDir), ~draw, ());

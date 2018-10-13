@@ -1,3 +1,15 @@
+Important shit 
+- smarter enemies
+    + Path finding with corner cutting
+    + make enemies that move enough that they're harder to hit (aim assist helps you less)
+- Better collision (move until you actually hit the wall)
+    + bullets shouldn't go through walls
+- try zoom out a bit
+- you need to die
+- 
+
+
+
 - can we afford to put buttons on the screen? Where do we put "toggle weapons"?
 - Spend more time on enemy AI
     + Cut-off behavior, something that'd get on the other side
@@ -14,3 +26,7 @@
     + They level up at the end of each level
 - tilt your phone to rotate the map view (dude alwasy facing up)
 - 
+
+
+Themes:
+-  
