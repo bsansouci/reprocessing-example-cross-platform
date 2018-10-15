@@ -67,7 +67,7 @@ let rec pathfindHelper = (pathfinderState, goal) => {
     }
   });
   
-  if (equals(current, goal)) {
+  if (current == goal) {
     reconstructPath(pathfinderState, current);
   } else {
     

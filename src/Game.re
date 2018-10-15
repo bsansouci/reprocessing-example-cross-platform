@@ -178,7 +178,7 @@ x0000000000000000000x000100000x000000000x00000000x
 xxxxxxxx000000000000x000000000x000000000x00000000x
 x001000000xxxx000000x000000000x000000000x00000000x
 x000000010x000100000x001000000x000000000x00000000x
-x000000000x000000000x000000000x000000000x00000000x
+x000000000x0000000000000000000x000000000x00000000x
 x001000000x0000000000000000000x000000000x00000000x
 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 |};
@@ -192,18 +192,6 @@ let parseMap = map => {
       gridHeight,
       {collision: false, kind: Floor},
     );
-  /*for (i in 0 to (gridHeight - 1)) {
-      grid[0][i] = {collision: true, kind: Wall};
-    };
-    for (i in 0 to (gridWidth - 1)) {
-      grid[i][0] = {collision: true, kind: Wall};
-    };
-    for (i in 0 to (gridHeight - 1)) {
-      grid[gridWidth - 1][i] = {collision: true, kind: Wall};
-    };
-    for (i in 0 to (gridWidth - 1)) {
-      grid[i][gridHeight - 1] = {collision: true, kind: Wall};
-    };*/
 
   let i = ref(0);
   /* I think the string starts with a newline. */
@@ -263,8 +251,8 @@ let setup = (size, assetDir, env) => {
   let (grid, enemies) = parseMap(gridMap);
 
   {
-    x: 5. *. tileSizef,
-    y: 2. *. tileSizef,
+    x: 5. *. tileSizef +. tileSizef /. 2.,
+    y: 2. *. tileSizef +. tileSizef /. 2.,
     time: 0.,
     aim: Nothing,
     health: 100,
@@ -292,7 +280,7 @@ let setup = (size, assetDir, env) => {
       },
       {
         length: 10,
-        moveTime: 0.6,
+        moveTime: 0.3,
         playerTravelDistance: 40.,
         bulletSpeed: 400.,
         kind: Shotgun,
@@ -318,8 +306,7 @@ let draw = (state, env) => {
       if (mt < 0.01) {
         realdt
         /. Utils.lerpf(
-             ~value=
-               Utils.norm(~value=mt, ~low=0., ~high=0.05),
+             ~value=Utils.norm(~value=mt, ~low=0., ~high=0.05),
              ~low=slowMoveDivisor,
              ~high=1.,
            );
@@ -329,7 +316,9 @@ let draw = (state, env) => {
         realdt
         /. Utils.lerpf(
              ~value=
-               easeInOutCubic(Utils.norm(~value=mt, ~low=maxTime -. 0.05, ~high=maxTime)),
+               easeInOutCubic(
+                 Utils.norm(~value=mt, ~low=maxTime -. 0.05, ~high=maxTime),
+               ),
              ~low=1.,
              ~high=slowMoveDivisor,
            );
@@ -493,8 +482,6 @@ let draw = (state, env) => {
                 );
                 let (destRelX, destRelY) = (destX -. x, destY -. y);
                 let mag = sqrt(destRelX *. destRelX +. destRelY *. destRelY);
-                let (a, b) = (nx1 -. x, ny1 -. y);
-                let c = sqrt(a *. a +. b *. b);
                 {
                   ...enemy,
                   pos: {
@@ -736,7 +723,9 @@ let draw = (state, env) => {
             };
 
           let shouldAssistAim =
-            state.time -. startAimTime < autoaimDisengageTime && currentWeapon.kind != Shotgun;
+            state.time
+            -. startAimTime < autoaimDisengageTime
+            && currentWeapon.kind != Shotgun;
           let (aimAssistdx, aimAssistdy) =
             if (shouldAssistAim) {
               let (dx, dy, _) = aimAssist(state, dx, dy, mag, env);
@@ -751,28 +740,71 @@ let draw = (state, env) => {
             let bulletSpeed = currentWeapon.bulletSpeed;
             /* The movement goes in the other direction when the player's holding the
                ShootsBehindYou gun. Everything other than the movement (the aim and bullet) goes in the normal direction. */
-            let (destX, destY) =
+            let (dx, dy) =
               if (currentWeapon.kind == ShootsBehindYou) {
-                (
-                  state.x +. dx /. mag *. currentWeapon.playerTravelDistance,
-                  state.y +. dy /. mag *. currentWeapon.playerTravelDistance,
-                );
+                (-. dx, -. dy);
               } else {
-                (
-                  state.x -. dx /. mag *. currentWeapon.playerTravelDistance,
-                  state.y -. dy /. mag *. currentWeapon.playerTravelDistance,
-                );
+                (dx, dy);
               };
+            let (destX, destY) = (
+              state.x -. dx /. mag *. currentWeapon.playerTravelDistance,
+              state.y -. dy /. mag *. currentWeapon.playerTravelDistance,
+            );
             let (cellX, cellY) = (
               int_of_float(floor(destX /. tileSizef)),
               int_of_float(floor(destY /. tileSizef)),
             );
-            let cell = state.grid[cellX][cellY];
             let aim =
-              if (cell.collision) {
-                Nothing;
-              } else if (state.experiment == _JOYSTICK) {
-                Nothing;
+              if (cellX >= 0
+                  && cellX < gridWidth
+                  && cellY >= 0
+                  && cellY < gridHeight) {
+                let cell = state.grid[cellX][cellY];
+                if (cell.collision) {
+                  let (newDestX, newDestY) = (
+                    state.x
+                    -. dx
+                    /. mag
+                    *. currentWeapon.playerTravelDistance
+                    /. 2.,
+                    state.y
+                    -. dy
+                    /. mag
+                    *. currentWeapon.playerTravelDistance
+                    /. 2.,
+                  );
+                  let (newCellX, newCellY) = (
+                    int_of_float(floor(newDestX /. tileSizef)),
+                    int_of_float(floor(newDestY /. tileSizef)),
+                  );
+                  if (newCellX >= 0
+                      && newCellX < gridWidth
+                      && newCellY >= 0
+                      && newCellY < gridHeight) {
+                    let cell = state.grid[newCellX][newCellY];
+                    if (cell.collision) {
+                      Nothing;
+                    } else {
+                      Moving(
+                        (state.x, state.y),
+                        (newDestX, newDestY),
+                        0.,
+                        currentWeapon.moveTime,
+                      );
+                    };
+                  } else {
+                    failwith("This really should not happen");
+                  };
+                } else if (state.experiment == _JOYSTICK) {
+                  Nothing;
+                } else {
+                  Moving(
+                    (state.x, state.y),
+                    (destX, destY),
+                    0.,
+                    currentWeapon.moveTime,
+                  );
+                };
               } else {
                 Moving(
                   (state.x, state.y),
@@ -901,8 +933,8 @@ let draw = (state, env) => {
       Array.iteri(
         (y, {kind}) => {
           let (x, y) = (
-            float_of_int(x) *. tileSizef -. tileSizef /. 2.,
-            float_of_int(y) *. tileSizef -. tileSizef /. 2.,
+            float_of_int(x) *. tileSizef,
+            float_of_int(y) *. tileSizef,
           );
           let paddingForSomeReason = 0.;
           let left = state.x -. halfWindowWf -. paddingForSomeReason;
@@ -999,8 +1031,8 @@ let draw = (state, env) => {
       drawWithRotation(
         AssetMap.find("robot1", state.assetMap),
         ~pos=(x, y),
-        ~width=224. /. 5.,
-        ~height=344. /. 5.,
+        ~width=224. /. 6.,
+        ~height=344. /. 6.,
         ~rot=0.,
         env,
       );
@@ -1020,8 +1052,17 @@ let draw = (state, env) => {
               );
             switch (path) {
             | [] => ()
-            | [current] => ()
-            | [_, _] => ()
+            | [_]
+            | [_, _] =>
+              let (dx, dy) = (state.x -. x, state.y -. y);
+              let mag = sqrt(dx *. dx +. dy *. dy);
+              Draw.stroke(Utils.color(0, 0, 255, 100), env);
+              Draw.strokeWeight(3, env);
+              Draw.linef(
+                ~p1=(x, y),
+                ~p2=(x +. dx /. mag *. speed, y +. dy /. mag *. speed),
+                env,
+              );
             | [_, next, nextnext, ...rest] =>
               let cellToWorld = ((x, y)) => (
                 float_of_int(x) *. tileSizef,
@@ -1059,8 +1100,8 @@ let draw = (state, env) => {
               Draw.linef(
                 ~p1=(x, y),
                 ~p2=(
-                  x +. destRelX /. mag *. speed *. dt,
-                  y +. destRelY /. mag *. speed *. dt,
+                  x +. destRelX /. mag *. speed,
+                  y +. destRelY /. mag *. speed,
                 ),
                 env,
               );
@@ -1072,8 +1113,8 @@ let draw = (state, env) => {
                 Draw.stroke(Utils.color(255, 0, 0, 100), env);
                 Draw.strokeWeight(3, env);
                 let (x, y) = (
-                  float_of_int(x) *. tileSizef,
-                  float_of_int(y) *. tileSizef,
+                  float_of_int(x) *. tileSizef +. tileSizef /. 2.,
+                  float_of_int(y) *. tileSizef +. tileSizef /. 2.,
                 );
                 Draw.linef(~p1=(prevX^, prevY^), ~p2=(x, y), env);
                 prevX := x;
@@ -1087,58 +1128,6 @@ let draw = (state, env) => {
     },
     state.enemies,
   );
-
-  /*  let enemy1 = List.hd(state.enemies);
-
-      let (cellX, cellY) = (
-        int_of_float(floor((enemy1.pos.x -. tileSizef /. 2. -. halfPlayerSizef) /. tileSizef)),
-        int_of_float(floor((enemy1.pos.y -. tileSizef /. 2. -. halfPlayerSizef) /. tileSizef)),
-      );
-      if (cellX >= 0 && cellX < gridWidth && cellY >= 0 && cellY < gridHeight) {
-        let cell = state.grid[cellX][cellY];
-        if (!cell.collision) {
-          let l = Pathfinder.pathfind(pathfinder, (playerCellX, playerCellY), (cellX, cellY));
-
-          let (prevX, prevY) = (ref(enemy1.pos.x), ref(enemy1.pos.y));
-          List.iter(((x, y)) => {
-            Draw.stroke(Utils.color(255, 0, 0, 100), env);
-            Draw.strokeWeight(3, env);
-            let (x, y) = (
-                    backgroundImagePaddingXf +. float_of_int(x) *. tileSizef,
-                    backgroundImagePaddingYf +. float_of_int(y) *. tileSizef,
-                  );
-            Draw.linef(~p1=(prevX^, prevY^), ~p2=(x, y), env);
-            prevX := x;
-            prevY := y;
-          }, l);
-        }
-      };*/
-
-  /*let enemy2 = List.hd(List.tl(state.enemies));
-
-    let (cellX, cellY) = (
-      int_of_float(floor((enemy2.pos.x -. tileSizef /. 2. -. halfPlayerSizef) /. tileSizef)),
-      int_of_float(floor((enemy2.pos.y -. tileSizef /. 2. -. halfPlayerSizef) /. tileSizef)),
-    );
-    if (cellX >= 0 && cellX < gridWidth && cellY >= 0 && cellY < gridHeight) {
-      let cell = state.grid[cellX][cellY];
-      if (!cell.collision) {
-        let l = Pathfinder.pathfind(pathfinder, (playerCellX, playerCellY), (cellX, cellY));
-
-        let (prevX, prevY) = (ref(enemy2.pos.x), ref(enemy2.pos.y));
-        List.iter(((x, y)) => {
-          Draw.stroke(Utils.color(255, 0, 0, 100), env);
-          Draw.strokeWeight(3, env);
-          let (x, y) = (
-                  backgroundImagePaddingXf +. float_of_int(x) *. tileSizef,
-                  backgroundImagePaddingYf +. float_of_int(y) *. tileSizef,
-                );
-          Draw.linef(~p1=(prevX^, prevY^), ~p2=(x, y), env);
-          prevX := x;
-          prevY := y;
-        }, l);
-      }
-    };*/
 
   if (state.experiment == _DEBUG) {
     /* Draw pineapple dots */
@@ -1181,6 +1170,36 @@ let draw = (state, env) => {
     },
     state.bullets,
   );
+
+  if (state.experiment == _DEBUG) {
+    switch (state.aim) {
+    | Moving(_, (destX, destY), _, _) =>
+      let (destX, destY) = (
+        floor(destX /. tileSizef) *. tileSizef,
+        floor(destY /. tileSizef) *. tileSizef,
+      );
+      Draw.fill(Utils.color(200, 200, 0, 255), env);
+      Draw.rectf(
+        ~pos=(destX, destY),
+        ~width=tileSizef,
+        ~height=tileSizef,
+        env,
+      );
+
+      let (destX, destY) = (
+        floor(state.x /. tileSizef) *. tileSizef,
+        floor(state.y /. tileSizef) *. tileSizef,
+      );
+      Draw.fill(Utils.color(100, 200, 100, 255), env);
+      Draw.rectf(
+        ~pos=(destX, destY),
+        ~width=tileSizef,
+        ~height=tileSizef,
+        env,
+      );
+    | _ => ()
+    };
+  };
 
   Draw.popMatrix(env);
 
@@ -1313,9 +1332,16 @@ let draw = (state, env) => {
   drawWithRotation(
     AssetMap.find("player", state.assetMap),
     ~pos=(playerXScreenf, playerYScreenf),
-    ~width=220./.6.,
-    ~height=311./.6.,
+    ~width=220. /. 6.,
+    ~height=311. /. 6.,
     ~rot=0.,
+    env,
+  );
+
+  Draw.ellipsef(
+    ~center=(playerXScreenf, playerYScreenf),
+    ~radx=4.,
+    ~rady=4.,
     env,
   );
 
@@ -1325,8 +1351,8 @@ let draw = (state, env) => {
     {
       ...state,
       deathTime: 3.,
-      x: 5. *. tileSizef,
-      y: 2. *. tileSizef,
+      x: 5. *. tileSizef +. tileSizef /. 2.,
+      y: 2. *. tileSizef +. tileSizef /. 2.,
       time: 0.,
       aim: Nothing,
       health: 100,
