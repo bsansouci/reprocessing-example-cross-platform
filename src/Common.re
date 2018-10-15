@@ -49,6 +49,7 @@ type enemyT = {
   pos: vec2,
   speed: float,
   error: vec2,
+  direction: vec2,
   timeUntilNextAttack: float,
   path: list((int, int))
 };

@@ -214,6 +214,10 @@ let parseMap = map => {
                   x: float_of_int(i^) *. tileSizef,
                   y: float_of_int(j^) *. tileSizef,
                 },
+                direction: {
+                  x: 0.,
+                  y: 0.,
+                },
                 speed: 50.,
                 error: {
                   x: 0.,
@@ -436,16 +440,28 @@ let draw = (state, env) => {
                   (cellX, cellY),
                 );
               switch (path) {
-              | [] => enemy
+              | [] => {
+                  ...enemy,
+                  direction: {
+                    x: 0.,
+                    y: 0.,
+                  },
+                }
               | [_]
               | [_, _] =>
                 let (dx, dy) = (state.x -. x, state.y -. y);
                 let mag = sqrt(dx *. dx +. dy *. dy);
+                let vx = dx /. mag *. speed;
+                let vy = dy /. mag *. speed;
                 {
                   ...enemy,
                   pos: {
-                    x: x +. dx /. mag *. speed *. dt,
-                    y: y +. dy /. mag *. speed *. dt,
+                    x: x +. vx *. dt,
+                    y: y +. vy *. dt,
+                  },
+                  direction: {
+                    x: vx,
+                    y: vy,
                   },
                   timeUntilNextAttack: max(0., timeUntilNextAttack -. dt),
                 };
@@ -482,11 +498,17 @@ let draw = (state, env) => {
                 );
                 let (destRelX, destRelY) = (destX -. x, destY -. y);
                 let mag = sqrt(destRelX *. destRelX +. destRelY *. destRelY);
+                let vx = destRelX /. mag *. speed;
+                let vy = destRelY /. mag *. speed;
                 {
                   ...enemy,
                   pos: {
-                    x: x +. destRelX /. mag *. speed *. dt,
-                    y: y +. destRelY /. mag *. speed *. dt,
+                    x: x +. vx *. dt,
+                    y: y +. vy *. dt,
+                  },
+                  direction: {
+                    x: vx,
+                    y: vy,
                   },
                   timeUntilNextAttack: max(0., timeUntilNextAttack -. dt),
                 };
@@ -960,7 +982,7 @@ let draw = (state, env) => {
                 env,
               );
             | Wall =>
-              Draw.fill(Utils.color(124, 10, 2, 255), env);
+              Draw.fill(Utils.color(124, 124, 124, 255), env);
               Draw.stroke(Constants.black, env);
               Draw.strokeWeight(1, env);
               Draw.rectf(
@@ -1027,12 +1049,61 @@ let draw = (state, env) => {
   );
 
   List.iter(
-    ({pos: {x, y}, speed}) => {
+    ({pos: {x, y}, direction, speed}) => {
+      Draw.tint(Utils.color(255, 255, 255, 50), env);
+      drawWithRotation(
+        AssetMap.find("robot1", state.assetMap),
+        ~pos=(
+          x -. direction.x *. (realdt -. dt) *. 12.,
+          y -. direction.y *. (realdt -. dt) *. 12.,
+        ),
+        ~width=224. /. 7.,
+        ~height=344. /. 7.,
+        ~rot=0.,
+        env,
+      );
+      Draw.tint(Utils.color(255, 255, 255, 100), env);
+      drawWithRotation(
+        AssetMap.find("robot1", state.assetMap),
+        ~pos=(
+          x -. direction.x *. (realdt -. dt) *. 8.,
+          y -. direction.y *. (realdt -. dt) *. 8.,
+        ),
+        ~width=224. /. 7.,
+        ~height=344. /. 7.,
+        ~rot=0.,
+        env,
+      );
+      Draw.tint(Utils.color(255, 255, 255, 100), env);
+      drawWithRotation(
+        AssetMap.find("robot1", state.assetMap),
+        ~pos=(
+          x -. direction.x *. (realdt -. dt) *. 4.,
+          y -. direction.y *. (realdt -. dt) *. 4.,
+        ),
+        ~width=224. /. 7.,
+        ~height=344. /. 7.,
+        ~rot=0.,
+        env,
+      );
+      Draw.tint(Utils.color(255, 255, 255, 150), env);
+      drawWithRotation(
+        AssetMap.find("robot1", state.assetMap),
+        ~pos=(
+          x -. direction.x *. (realdt -. dt) *. 2.,
+          y -. direction.y *. (realdt -. dt) *. 2.,
+        ),
+        ~width=224. /. 7.,
+        ~height=344. /. 7.,
+        ~rot=0.,
+        env,
+      );
+      Draw.noTint(env);
       drawWithRotation(
         AssetMap.find("robot1", state.assetMap),
         ~pos=(x, y),
-        ~width=224. /. 6.,
-        ~height=344. /. 6.,
+        ~width=224. /. 7.,
+        ~height=344. /. 7.,
         ~rot=0.,
         env,
       );
@@ -1338,12 +1409,14 @@ let draw = (state, env) => {
     env,
   );
 
-  Draw.ellipsef(
-    ~center=(playerXScreenf, playerYScreenf),
-    ~radx=4.,
-    ~rady=4.,
-    env,
-  );
+  if (state.experiment == _DEBUG) {
+    Draw.ellipsef(
+      ~center=(playerXScreenf, playerYScreenf),
+      ~radx=4.,
+      ~rady=4.,
+      env,
+    );
+  };
 
   if (state.health <= 0) {
     let (grid, enemies) = parseMap(gridMap);
