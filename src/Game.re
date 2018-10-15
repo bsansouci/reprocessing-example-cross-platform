@@ -5,100 +5,7 @@ let _NUMBER_OF_EXPERIMENTS = 2;
 let _JOYSTICK = 2;
 
 open Reprocessing;
-
-module AssetMap = Map.Make(String);
-
-type aimingPacketT = {
-  x: float,
-  y: float,
-  points: list((float, float)),
-  startAimTime: float,
-};
-
-type aimT =
-  | Nothing
-  | Aiming(aimingPacketT)
-  | Moving((float, float), (float, float), float, float);
-
-type bulletT = {
-  x: float,
-  y: float,
-  vx: float,
-  vy: float,
-};
-
-type splashT = {
-  x: float,
-  y: float,
-  rotation: float,
-  width: float,
-  height: float,
-};
-
-type vec2 = {
-  x: float,
-  y: float,
-};
-
-type enemyT = {
-  pos: vec2,
-  speed: float,
-  error: vec2,
-  timeUntilNextAttack: float,
-};
-
-type soundsT = {enemyDeathSound: soundT};
-
-type weaponKindT =
-  | ShootsBehindYou
-  | Pistol
-  | Sniper;
-
-type weaponsT = {
-  length: int,
-  moveTime: float,
-  playerTravelDistance: float,
-  bulletSpeed: float,
-  kind: weaponKindT,
-};
-
-type tileKindT =
-  | Floor
-  | Wall;
-
-type tileT = {
-  kind: tileKindT,
-  collision: bool,
-};
-
-type state = {
-  x: float,
-  y: float,
-  time: float,
-  health: int,
-  
-  aim: aimT,
-  
-  enemies: list(enemyT),
-  splashes: list(splashT),
-  bullets: list(bulletT),
-  
-  bg: imageT,
-  cachedBackground: imageT,
-  assetMap: AssetMap.t(imageT),
-  sounds: soundsT,
-  
-  prevMouseState: bool,
-  
-  currentWeaponIndex: int,
-  weapons: array(weaponsT),
-  
-  grid: array(array(tileT)),
-  
-  deathTime: float,
-  
-  experiment: int,
-};
+open Common;
 
 let drawWithRotation = (img, ~pos as (x, y), ~height, ~width, ~rot, env) => {
   Draw.pushMatrix(env);
@@ -112,7 +19,7 @@ let drawWithRotation = (img, ~pos as (x, y), ~height, ~width, ~rot, env) => {
 let dropLast = li => {
   let rec loop = (newList, tailOldList) =>
     switch (tailOldList) {
-    | [] => assert(false)
+    | [] => failwith("dropLast encountered an empty list")
     | [el] => newList
     | [el, ...rest] => loop([el, ...newList], rest)
     };
@@ -162,19 +69,6 @@ let bulletCollidesWithEnemies = ({x, y}: bulletT, enemies) => {
   loop(enemies, 0);
 };
 
-let moveSpeed = 60.;
-let moveTime = 0.3;
-/* TODO: as you continue to play, this could ramp up */
-let slowMoveDivisor = 8.;
-let possibleFruits = ["banana", "pineapple", "apple", "coconut", "orange"];
-
-let halfPlayerSize = 32;
-let tileSize = halfPlayerSize * 2;
-let tileSizef = float_of_int(tileSize);
-let halfPlayerSizef = float_of_int(halfPlayerSize);
-let autoaimDisengageTime = 0.8;
-let enemyAttackDistance = 60.;
-
 let loadAssetMap = (env, possibleFruits) => {
   let files: list((string, string)) =
     List.flatten(
@@ -190,7 +84,12 @@ let loadAssetMap = (env, possibleFruits) => {
         possibleFruits,
       ),
     );
-  let files = [("./assets/splash_red_small.png", "splash_red"), ("./assets/robot1_small.png", "robot1"), ("./assets/player_small.png", "player"), ...files];
+  let files = [
+    ("./assets/splash_red_small.png", "splash_red"),
+    ("./assets/robot1_small.png", "robot1"),
+    ("./assets/player_small.png", "player"),
+    ...files,
+  ];
   List.fold_left(
     (assetMap, (filename, name)) =>
       AssetMap.add(name, Draw.loadImage(~filename, env), assetMap),
@@ -273,20 +172,20 @@ let (+/) = Filename.concat;
 
 let gridMap = {|
 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+x000000000x001000000x000100000x000000000x00000000x
+x000000100xxxx000000x000000000x000000000x00000000x
+x0000000000000000000x000100000x000000000x00000000x
+xxxxxxxx000000000000x000000000x000000000x00000000x
+x001000000xxxx000000x000000000x000000000x00000000x
+x000000010x000100000x001000000x000000000x00000000x
 x000000000x000000000x000000000x000000000x00000000x
-x000000000xxxx000000x000000000x000000000x00000000x
-x0000000000000000000x000000000x000000000x00000000x
-xxxxxxxx00xxxx000000x000000000x000000000x00000000x
-x000000000x000000000x000000000x000000000x00000000x
-x000000000x000000000x000000000x000000000x00000000x
-x000000000x000000000x000000000x000000000x00000000x
-x000000000x000000000x000000000x000000000x00000000x
+x001000000x0000000000000000000x000000000x00000000x
 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 |};
 
+let gridWidth = 50;
+let gridHeight = 10;
 let parseMap = map => {
-  let gridWidth = 50;
-  let gridHeight = 10;
   let grid =
     Array.make_matrix(
       gridWidth,
@@ -308,7 +207,8 @@ let parseMap = map => {
 
   let i = ref(0);
   /* I think the string starts with a newline. */
-  let j = ref(-1); 
+  let j = ref(-1);
+  let enemies = ref([]);
   for (k in 0 to String.length(map) - 1) {
     if (map.[k] == '\n') {
       i := 0;
@@ -316,16 +216,35 @@ let parseMap = map => {
     } else {
       let cell =
         switch (map.[k]) {
-        | 'x' => 
-        {collision: true, kind: Wall}
+        | 'x' => {collision: true, kind: Wall}
         | '0' => {collision: false, kind: Floor}
+        | '1' =>
+          enemies :=
+            [
+              {
+                pos: {
+                  x: float_of_int(i^) *. tileSizef,
+                  y: float_of_int(j^) *. tileSizef,
+                },
+                speed: 50.,
+                error: {
+                  x: 0.,
+                  y: 0.,
+                },
+                timeUntilNextAttack: 0.,
+                path: [],
+              },
+              ...enemies^,
+            ];
+
+          {collision: false, kind: Floor};
         | _ => {collision: false, kind: Floor}
         };
       grid[i^][j^] = cell;
       i := i^ + 1;
     };
   };
-  grid;
+  (grid, enemies^);
 };
 
 let setup = (size, assetDir, env) => {
@@ -341,7 +260,7 @@ let setup = (size, assetDir, env) => {
   };
   Random.init(0);
 
-  let grid = parseMap(gridMap);
+  let (grid, enemies) = parseMap(gridMap);
 
   {
     x: 5. *. tileSizef,
@@ -349,21 +268,7 @@ let setup = (size, assetDir, env) => {
     time: 0.,
     aim: Nothing,
     health: 100,
-    enemies:
-      initList(100, _ =>
-        {
-          pos: {
-            x: Utils.randomf(~min=0., ~max=2000.),
-            y: Utils.randomf(~min=0., ~max=2000.),
-          },
-          speed: 50.,
-          error: {
-            x: 0.,
-            y: 0.,
-          },
-          timeUntilNextAttack: 0.
-        }
-      ),
+    enemies,
     bg: Draw.loadImage(~filename=assetDir +/ "background.png", env),
     cachedBackground:
       Draw.createImage(~width=100 * tileSize, ~height=100 * tileSize, env),
@@ -379,24 +284,24 @@ let setup = (size, assetDir, env) => {
     deathTime: 0.,
     weapons: [|
       {
-        length: 10,
+        length: 5,
         moveTime: 0.3,
-        playerTravelDistance: 60.,
-        bulletSpeed: 20.,
+        playerTravelDistance: 40.,
+        bulletSpeed: 600.,
         kind: Pistol,
       },
       {
-        length: 30,
+        length: 10,
         moveTime: 0.6,
-        playerTravelDistance: 120.,
-        bulletSpeed: 30.,
-        kind: Sniper,
+        playerTravelDistance: 40.,
+        bulletSpeed: 400.,
+        kind: Shotgun,
       },
       {
-        length: 10,
+        length: 5,
         moveTime: 0.3,
-        playerTravelDistance: 60.,
-        bulletSpeed: 20.,
+        playerTravelDistance: 40.,
+        bulletSpeed: 200.,
         kind: ShootsBehindYou,
       },
     |],
@@ -410,42 +315,49 @@ let draw = (state, env) => {
   let dt =
     switch (state.aim) {
     | Moving(_, _, mt, maxTime) =>
-      if (mt < 0.1) {
+      if (mt < 0.01) {
         realdt
         /. Utils.lerpf(
              ~value=
-               easeInOutCubic(Utils.norm(~value=mt, ~low=0., ~high=0.1)),
+               Utils.norm(~value=mt, ~low=0., ~high=0.05),
              ~low=slowMoveDivisor,
              ~high=1.,
            );
-      } else if (mt >= 0.1 && mt < maxTime -. 0.1) {
+      } else if (mt >= 0.01 && mt < maxTime -. 0.05) {
         realdt;
       } else {
         realdt
         /. Utils.lerpf(
              ~value=
-               easeInOutCubic(
-                 Utils.norm(~value=mt, ~low=maxTime -. 0.1, ~high=maxTime),
-               ),
+               easeInOutCubic(Utils.norm(~value=mt, ~low=maxTime -. 0.05, ~high=maxTime)),
              ~low=1.,
              ~high=slowMoveDivisor,
            );
       }
     | _ => realdt /. slowMoveDivisor
     };
-  
+
   let windowW = Env.width(env);
   let windowWf = float_of_int(windowW);
   let windowH = Env.height(env);
   let windowHf = float_of_int(windowH);
-  
+
   let halfWindowW = windowW / 2;
   let halfWindowWf = float_of_int(halfWindowW);
   let halfWindowH = windowH / 2;
   let halfWindowHf = float_of_int(halfWindowH);
-  let (playerXScreen, playerYScreen) = (halfWindowW, halfWindowH + 100);
-  let (playerXScreenf, playerYScreenf) = (float_of_int(playerXScreen), float_of_int(playerYScreen));
-  let state = {...state, time: state.time +. realdt, deathTime: max(0., state.deathTime -. realdt)};
+  let (playerXScreen, playerYScreen) = (halfWindowW, halfWindowH);
+  let (playerXScreenf, playerYScreenf) = (
+    float_of_int(playerXScreen),
+    float_of_int(playerYScreen),
+  );
+  let state = {
+    ...state,
+    time: state.time +. realdt,
+    deathTime: max(0., state.deathTime -. realdt),
+  };
+
+  let pathfinder = Pathfinder.make(state.grid);
 
   /* ======= EVENTS + UPDATES ======= */
   let (mx, my, mx2, my2, numOfTouches) =
@@ -454,11 +366,17 @@ let draw = (state, env) => {
       let (mx, my) = Env.mouse(env);
       (float_of_int(mx), float_of_int(my), 0., 0., 1);
     | [{x, y}] => (x, y, 0., 0., 1)
-    | [{x, y}, {x: x2, y: y2}, ...rest] => (x, y, x2, y2, 2 + List.length(rest))
+    | [{x, y}, {x: x2, y: y2}, ...rest] => (
+        x,
+        y,
+        x2,
+        y2,
+        2 + List.length(rest),
+      )
     };
-  
+
   let visibleEnemies = getVisibleEnemies(state, env);
-  
+
   /* Bullet collision detection and response */
   let state =
     List.fold_left(
@@ -470,7 +388,7 @@ let draw = (state, env) => {
           | None => {
               ...state,
               bullets: [
-                {...bullet, x: x +. vx, y: y +. vy},
+                {...bullet, x: x +. vx *. dt, y: y +. vy *. dt},
                 ...state.bullets,
               ],
             }
@@ -496,79 +414,146 @@ let draw = (state, env) => {
                   ...state.splashes,
                 ],
               }
-            | _ => assert(false)
+            | _ => failwith("splitListAt returned something strange")
             };
           };
         },
       {...state, bullets: []},
       state.bullets,
     );
+  let (playerCellX, playerCellY) = (
+    int_of_float(floor(state.x /. tileSizef)),
+    int_of_float(floor(state.y /. tileSizef)),
+  );
   let state = {
     ...state,
     enemies:
       List.map(
         ({pos: {x, y}, speed, error, timeUntilNextAttack} as enemy) => {
-          let dx = state.x -. x;
-          let dy = state.y -. y;
+          let (cellX, cellY) = (
+            int_of_float(floor(x /. tileSizef)),
+            int_of_float(floor(y /. tileSizef)),
+          );
+          if (cellX >= 0
+              && cellX < gridWidth
+              && cellY >= 0
+              && cellY < gridHeight) {
+            let cell = state.grid[cellX][cellY];
+            if (!cell.collision) {
+              let path =
+                Pathfinder.pathfind(
+                  pathfinder,
+                  (playerCellX, playerCellY),
+                  (cellX, cellY),
+                );
+              switch (path) {
+              | [] => enemy
+              | [_]
+              | [_, _] =>
+                let (dx, dy) = (state.x -. x, state.y -. y);
+                let mag = sqrt(dx *. dx +. dy *. dy);
+                {
+                  ...enemy,
+                  pos: {
+                    x: x +. dx /. mag *. speed *. dt,
+                    y: y +. dy /. mag *. speed *. dt,
+                  },
+                  timeUntilNextAttack: max(0., timeUntilNextAttack -. dt),
+                };
+              | [_, next, nextnext, ...rest] =>
+                let cellToWorld = ((x, y)) => (
+                  float_of_int(x) *. tileSizef,
+                  float_of_int(y) *. tileSizef,
+                );
+                let (nx1, ny1) = cellToWorld(next);
+                let (dx1, dy1) = (nx1 -. x, ny1 -. y);
+                let nextCellMag = sqrt(dx1 *. dx1 +. dy1 *. dy1);
 
-          let mag = sqrt(dx *. dx +. dy *. dy);
-          let dx = dx /. mag *. speed *. dt;
-          let dy = dy /. mag *. speed *. dt;
+                let (currentCellx, currentCelly) =
+                  cellToWorld((cellX, cellY));
+                let (currentCelldx, currentCelldy) = (
+                  currentCellx -. x,
+                  currentCelly -. y,
+                );
+                let currentCellMag =
+                  sqrt(
+                    currentCelldx
+                    *. currentCelldx
+                    +. currentCelldy
+                    *. currentCelldy,
+                  );
 
-          let pos = {
-            x: x +. dx +. error.x *. dt,
-            y: y +. dy +. error.y *. dt,
+                let ratio = currentCellMag /. (currentCellMag +. nextCellMag);
+
+                let (nx2, ny2) = cellToWorld(nextnext);
+                let (dx2, dy2) = (nx2 -. nx1, ny2 -. ny1);
+                let (destX, destY) = (
+                  nx1 +. dx2 *. ratio,
+                  ny1 +. dy2 *. ratio,
+                );
+                let (destRelX, destRelY) = (destX -. x, destY -. y);
+                let mag = sqrt(destRelX *. destRelX +. destRelY *. destRelY);
+                let (a, b) = (nx1 -. x, ny1 -. y);
+                let c = sqrt(a *. a +. b *. b);
+                {
+                  ...enemy,
+                  pos: {
+                    x: x +. destRelX /. mag *. speed *. dt,
+                    y: y +. destRelY /. mag *. speed *. dt,
+                  },
+                  timeUntilNextAttack: max(0., timeUntilNextAttack -. dt),
+                };
+              };
+            } else {
+              enemy;
+            };
+          } else {
+            enemy;
           };
-          let error = {
-            x:
-              Utils.constrain(
-                ~amt=error.x +. Utils.randomf(~min=-2., ~max=2.),
-                ~high=speed,
-                ~low=-. speed,
-              ),
-            y:
-              Utils.constrain(
-                ~amt=error.y +. Utils.randomf(~min=-2., ~max=2.),
-                ~high=speed,
-                ~low=-. speed,
-              ),
-          };
-          {...enemy, pos, error, timeUntilNextAttack: max(0., timeUntilNextAttack -. dt)};
         },
         state.enemies,
       ),
   };
-  
-  let state = List.fold_left(({health} as innerState, {pos: {x, y}, timeUntilNextAttack} as enemy) => {
-    if (timeUntilNextAttack <= 0.) {
-      let dx = state.x -. x;
-      let dy = state.y -. y;
-      let mag = sqrt(dx *. dx +. dy *. dy);
-      if (mag < enemyAttackDistance) {
-        {...innerState, health: health - 10, enemies: List.map((e) => e == enemy ? {...e, timeUntilNextAttack: 1.} : e, state.enemies)};
-      } else {
-        innerState
-      };
-    } else {
-      innerState
-    };
-  }, state, state.enemies);
-  
+
+  let state =
+    List.fold_left(
+      ({health} as innerState, {pos: {x, y}, timeUntilNextAttack} as enemy) =>
+        if (timeUntilNextAttack <= 0.) {
+          let dx = state.x -. x;
+          let dy = state.y -. y;
+          let mag = sqrt(dx *. dx +. dy *. dy);
+          if (mag < enemyAttackDistance) {
+            {
+              ...innerState,
+              health: health - 10,
+              enemies:
+                List.map(
+                  e => e == enemy ? {...e, timeUntilNextAttack: 1.} : e,
+                  state.enemies,
+                ),
+            };
+          } else {
+            innerState;
+          };
+        } else {
+          innerState;
+        },
+      state,
+      state.enemies,
+    );
+
   let (devButtonX, devButtonY) = (60., 60.);
-      let (swapWeaponsButtonWidth, swapWeaponsButtonHeight) = (64., 64.);
-  let (
-    swapWeaponsButtonX,
-    swapWeaponsButtonY,
-  ) =
-      (
-        float_of_int(playerXScreen - halfPlayerSize),
-        float_of_int(playerYScreen - halfPlayerSize),
-      );
-  let state = if (numOfTouches > 1) {
-    state
-  } else {
-    state
-  };
+  let (swapWeaponsButtonWidth, swapWeaponsButtonHeight) = (64., 64.);
+  let (swapWeaponsButtonX, swapWeaponsButtonY) = (
+    float_of_int(playerXScreen - halfPlayerSize),
+    float_of_int(playerYScreen - halfPlayerSize),
+  );
+  let state =
+    if (numOfTouches > 1) {
+      state;
+    } else {
+      state;
+    };
   let (state, didTapOnSwapButton) =
     switch (state.aim, Env.mousePressed(env)) {
     | (Aiming({x: sx, y: sy, points, startAimTime}), false)
@@ -632,7 +617,7 @@ let draw = (state, env) => {
       }
     | _ => (state, false)
     };
-  
+
   let (aimStartXf, aimStartYf) = (windowWf -. 120., windowHf -. 120.);
   let state =
     if (state.prevMouseState
@@ -650,14 +635,16 @@ let draw = (state, env) => {
           let dx = aimStartXf -. mx;
           let dy = aimStartYf -. my;
           let mag = sqrt(dx *. dx +. dy *. dy);
-          let (x, y) = if (mag > 30.) {
-            (state.x -. dx *. realdt, state.y -. dy *. realdt)
-          } else {
-            (state.x, state.y)
-          };
+          let (x, y) =
+            if (mag > 30.) {
+              (state.x -. dx *. realdt, state.y -. dy *. realdt);
+            } else {
+              (state.x, state.y);
+            };
           {
             ...state,
-            x, y,
+            x,
+            y,
             aim:
               Aiming({
                 ...aiming,
@@ -665,7 +652,7 @@ let draw = (state, env) => {
                 y: sy,
                 points: [(mx, my), ...points],
               }),
-          }  
+          };
         } else {
           let dx = sx -. mx;
           let dy = sy -. my;
@@ -696,11 +683,12 @@ let draw = (state, env) => {
       | (Aiming({x: sx, y: sy, points, startAimTime}), false) =>
         if (!didTapOnSwapButton) {
           let currentWeapon = state.weapons[state.currentWeaponIndex];
-          let (sx, sy) = if (state.experiment == _JOYSTICK) {
-            (aimStartXf,aimStartYf)
-          } else {
-            (sx ,sy)
-          };
+          let (sx, sy) =
+            if (state.experiment == _JOYSTICK) {
+              (aimStartXf, aimStartYf);
+            } else {
+              (sx, sy);
+            };
           let (dx, dy) =
             if (currentWeapon.kind == ShootsBehindYou) {
               (mx -. sx, my -. sy);
@@ -725,19 +713,30 @@ let draw = (state, env) => {
 
               let (dx, dy) =
                 List.fold_left(
-                  ((dx, dy), (x, y)) => (dx +. (currentWeapon.kind == ShootsBehindYou ? (x -. sx) : (sx -. x)), dy +. (currentWeapon.kind == ShootsBehindYou ? (y -. sy) : (sy -. y))),
+                  ((dx, dy), (x, y)) => (
+                    dx
+                    +. (
+                      currentWeapon.kind == ShootsBehindYou ? x -. sx : sx -. x
+                    ),
+                    dy
+                    +. (
+                      currentWeapon.kind == ShootsBehindYou ? y -. sy : sy -. y
+                    ),
+                  ),
                   (dx, dy),
                   firstCoupleOfPoints,
                 );
-              
-              
-              (dx /. float_of_int(numberOfPointsToAverage), dy /. float_of_int(numberOfPointsToAverage));
+
+              (
+                dx /. float_of_int(numberOfPointsToAverage),
+                dy /. float_of_int(numberOfPointsToAverage),
+              );
             } else {
               (dx, dy);
             };
 
           let shouldAssistAim =
-            state.time -. startAimTime < autoaimDisengageTime;
+            state.time -. startAimTime < autoaimDisengageTime && currentWeapon.kind != Shotgun;
           let (aimAssistdx, aimAssistdy) =
             if (shouldAssistAim) {
               let (dx, dy, _) = aimAssist(state, dx, dy, mag, env);
@@ -747,7 +746,8 @@ let draw = (state, env) => {
             };
           if (mag > 20.) {
             let mag = sqrt(dx *. dx +. dy *. dy);
-            let aimAssistmag = sqrt(aimAssistdx *. aimAssistdx +. aimAssistdy *. aimAssistdy);
+            let aimAssistmag =
+              sqrt(aimAssistdx *. aimAssistdx +. aimAssistdy *. aimAssistdy);
             let bulletSpeed = currentWeapon.bulletSpeed;
             /* The movement goes in the other direction when the player's holding the
                ShootsBehindYou gun. Everything other than the movement (the aim and bullet) goes in the normal direction. */
@@ -764,40 +764,80 @@ let draw = (state, env) => {
                 );
               };
             let (cellX, cellY) = (
-              int_of_float(floor((destX -. tileSizef /. 2. -. halfPlayerSizef) /. tileSizef)),
-              int_of_float(floor((destY -. tileSizef /. 2. -. halfPlayerSizef) /. tileSizef)),
+              int_of_float(floor(destX /. tileSizef)),
+              int_of_float(floor(destY /. tileSizef)),
             );
             let cell = state.grid[cellX][cellY];
             let aim =
               if (cell.collision) {
                 Nothing;
+              } else if (state.experiment == _JOYSTICK) {
+                Nothing;
               } else {
-                if (state.experiment == _JOYSTICK) {
-                  Nothing;
-                  
-                } else {
-                  
-                  Moving(
-                    (state.x, state.y),
-                    (destX, destY),
-                    0.,
-                    currentWeapon.moveTime,
-                  );
-                }
+                Moving(
+                  (state.x, state.y),
+                  (destX, destY),
+                  0.,
+                  currentWeapon.moveTime,
+                );
               };
-            {
-              ...state,
-              aim,
-              bullets: [
-                {
-                  x: state.x -. aimAssistdx /. aimAssistmag *. halfPlayerSizef,
-                  y: state.y -. aimAssistdy /. aimAssistmag *. halfPlayerSizef,
-                  vx: -. aimAssistdx /. aimAssistmag *. bulletSpeed,
-                  vy: -. aimAssistdy /. aimAssistmag *. bulletSpeed,
-                },
-                ...state.bullets,
-              ],
-            };
+            let (dirX, dirY) = (
+              aimAssistdx /. aimAssistmag,
+              aimAssistdy /. aimAssistmag,
+            );
+            let bullets =
+              if (currentWeapon.kind == Shotgun) {
+                [
+                  {
+                    x: state.x -. dirX *. halfPlayerSizef,
+                    y: state.y -. dirY *. halfPlayerSizef,
+                    vx: -. dirX *. bulletSpeed,
+                    vy: -. dirY *. bulletSpeed,
+                  },
+                  {
+                    x: state.x -. dirX *. halfPlayerSizef,
+                    y: state.y -. dirY *. halfPlayerSizef,
+                    vx:
+                      -. (dirX +. Utils.randomf(~min=-0.3, ~max=0.3))
+                      *. bulletSpeed,
+                    vy:
+                      -. (dirY +. Utils.randomf(~min=-0.3, ~max=0.3))
+                      *. bulletSpeed,
+                  },
+                  {
+                    x: state.x -. dirX *. halfPlayerSizef,
+                    y: state.y -. dirY *. halfPlayerSizef,
+                    vx:
+                      -. (dirX +. Utils.randomf(~min=-0.3, ~max=0.3))
+                      *. bulletSpeed,
+                    vy:
+                      -. (dirY +. Utils.randomf(~min=-0.3, ~max=0.3))
+                      *. bulletSpeed,
+                  },
+                  {
+                    x: state.x -. dirX *. halfPlayerSizef,
+                    y: state.y -. dirY *. halfPlayerSizef,
+                    vx:
+                      -. (dirX +. Utils.randomf(~min=-0.3, ~max=0.3))
+                      *. bulletSpeed,
+                    vy:
+                      -. (dirY +. Utils.randomf(~min=-0.3, ~max=0.3))
+                      *. bulletSpeed,
+                  },
+                  ...state.bullets,
+                ];
+              } else {
+                [
+                  {
+                    x: state.x -. dirX *. halfPlayerSizef,
+                    y: state.y -. dirY *. halfPlayerSizef,
+                    vx: -. dirX *. bulletSpeed,
+                    vy: -. dirY *. bulletSpeed,
+                  },
+                  ...state.bullets,
+                ];
+              };
+            {...state, aim, bullets};
           } else {
             {...state, aim: Nothing};
           };
@@ -825,36 +865,35 @@ let draw = (state, env) => {
           Utils.constrain(~amt=time /. maxTime, ~low=0., ~high=1.);
         {
           ...state,
-          aim: Moving(start, dest, time +. realdt, maxTime),
+          aim: Moving(start, dest, time +. dt, maxTime),
           x: Utils.lerpf(~low=startX, ~high=destX, ~value=lerpAmt),
           y: Utils.lerpf(~low=startY, ~high=destY, ~value=lerpAmt),
         };
       };
     };
-  /*print_endline("state.health: " ++ string_of_int(state.health));*/
+
   /* ======= DRAWING ======= */
-  Draw.tint(Utils.color(255, (state.health + 155), (state.health + 155), 255), env);
+  Draw.tint(
+    Utils.color(255, state.health + 155, state.health + 155, 255),
+    env,
+  );
   if (state.experiment == _DEBUG) {
     Draw.background(Utils.color(~r=255, ~g=220, ~b=200, ~a=255), env);
+  } else if (state.currentWeaponIndex == 1) {
+    Draw.background(Utils.color(~r=120, ~g=160, ~b=240, ~a=255), env);
+  } else if (state.currentWeaponIndex == 2) {
+    Draw.background(Utils.color(~r=240, ~g=160, ~b=120, ~a=255), env);
   } else {
-    if (state.currentWeaponIndex == 1) {
-      Draw.background(Utils.color(~r=120, ~g=160, ~b=240, ~a=255), env);
-    } else if (state.currentWeaponIndex == 2) {
-      Draw.background(Utils.color(~r=240, ~g=160, ~b=120, ~a=255), env);
-    } else {
-      Draw.background(Constants.white, env);
-    };
+    Draw.background(Constants.white, env);
   };
 
   Draw.pushMatrix(env);
-  Draw.translate(~x=playerXScreenf -. state.x, ~y=playerYScreenf -. state.y, env);
-
-  /* Draw background once and cache it. */
-  let (backgroundImagePaddingX, backgroundImagePaddingY) = (100, 100);
-  let (backgroundImagePaddingXf, backgroundImagePaddingYf) = (
-    float_of_int(backgroundImagePaddingX),
-    float_of_int(backgroundImagePaddingY),
+  Draw.translate(
+    ~x=playerXScreenf -. state.x,
+    ~y=playerYScreenf -. state.y,
+    env,
   );
+
   /*if (!Draw.isImageDrawnTo(state.cachedBackground)) {
     Draw.withImage(state.cachedBackground, env, env =>*/
   Array.iteri(
@@ -862,10 +901,10 @@ let draw = (state, env) => {
       Array.iteri(
         (y, {kind}) => {
           let (x, y) = (
-            backgroundImagePaddingXf +. float_of_int(x) *. tileSizef,
-            backgroundImagePaddingYf +. float_of_int(y) *. tileSizef,
+            float_of_int(x) *. tileSizef -. tileSizef /. 2.,
+            float_of_int(y) *. tileSizef -. tileSizef /. 2.,
           );
-          let paddingForSomeReason = 50.;
+          let paddingForSomeReason = 0.;
           let left = state.x -. halfWindowWf -. paddingForSomeReason;
           let right = state.x +. halfWindowWf +. paddingForSomeReason;
           let top = state.y -. halfWindowHf -. paddingForSomeReason;
@@ -877,27 +916,28 @@ let draw = (state, env) => {
               +. tileSizef > top
               && y < bottom) {
             switch (kind) {
-            | Floor => ()
-              /*Draw.fill(Constants.white, env);
-              Draw.stroke(Constants.white, env);
-              Draw.strokeWeight(0, env);
+            | Floor =>
+              ();
+              Draw.fill(Constants.white, env);
+              Draw.stroke(Constants.black, env);
+              Draw.strokeWeight(1, env);
               Draw.rectf(
-                ~pos=(x -. tileSizef /. 2., y -. tileSizef /. 2.),
-                ~width=tileSizef,
-                ~height=tileSizef,
-                env,
-              );*/
-            | Wall =>
-              Draw.fill(Utils.color(124, 10, 2, 255), env);
-              Draw.stroke(Constants.white, env);
-              Draw.strokeWeight(0, env);
-              Draw.rectf(
-                ~pos=(x -. tileSizef /. 2., y -. tileSizef /. 2.),
+                ~pos=(x, y),
                 ~width=tileSizef,
                 ~height=tileSizef,
                 env,
               );
-              /*drawWithRotation(
+            | Wall =>
+              Draw.fill(Utils.color(124, 10, 2, 255), env);
+              Draw.stroke(Constants.black, env);
+              Draw.strokeWeight(1, env);
+              Draw.rectf(
+                ~pos=(x, y),
+                ~width=tileSizef,
+                ~height=tileSizef,
+                env,
+              );
+            /*drawWithRotation(
                 AssetMap.find("coconut", state.assetMap),
                 ~pos=(x, y),
                 ~width=54.,
@@ -912,11 +952,6 @@ let draw = (state, env) => {
       ),
     state.grid,
   );
-  
-  if (state.deathTime > 0.) {
-    Draw.text(~body="REVIVED!", ~pos=(5 * tileSize - Draw.textWidth(~body="REVIVED!", env) / 2, -200), env);
-    Draw.text(~body="go fight", ~pos=(5 * tileSize - Draw.textWidth(~body="go fight", env) / 2 - 2, -150), env);
-  };
   /*);*/
   /*} else {
         /* Draw at that position for padding */
@@ -927,6 +962,25 @@ let draw = (state, env) => {
         );
       };
     */
+
+  if (state.deathTime > 0.) {
+    Draw.text(
+      ~body="REVIVED!",
+      ~pos=(
+        5 * tileSize - Draw.textWidth(~body="REVIVED!", env) / 2,
+        (-200),
+      ),
+      env,
+    );
+    Draw.text(
+      ~body="go fight",
+      ~pos=(
+        5 * tileSize - Draw.textWidth(~body="go fight", env) / 2 - 2,
+        (-150),
+      ),
+      env,
+    );
+  };
   List.iter(
     ({x, y, width, height, rotation}) =>
       drawWithRotation(
@@ -941,7 +995,7 @@ let draw = (state, env) => {
   );
 
   List.iter(
-    ({pos: {x, y}}) =>
+    ({pos: {x, y}, speed}) => {
       drawWithRotation(
         AssetMap.find("robot1", state.assetMap),
         ~pos=(x, y),
@@ -949,9 +1003,142 @@ let draw = (state, env) => {
         ~height=344. /. 5.,
         ~rot=0.,
         env,
-      ),
+      );
+      if (state.experiment == _DEBUG) {
+        let (cellX, cellY) = (
+          int_of_float(floor(x /. tileSizef)),
+          int_of_float(floor(y /. tileSizef)),
+        );
+        if (cellX >= 0 && cellX < gridWidth && cellY >= 0 && cellY < gridHeight) {
+          let cell = state.grid[cellX][cellY];
+          if (!cell.collision) {
+            let path =
+              Pathfinder.pathfind(
+                pathfinder,
+                (playerCellX, playerCellY),
+                (cellX, cellY),
+              );
+            switch (path) {
+            | [] => ()
+            | [current] => ()
+            | [_, _] => ()
+            | [_, next, nextnext, ...rest] =>
+              let cellToWorld = ((x, y)) => (
+                float_of_int(x) *. tileSizef,
+                float_of_int(y) *. tileSizef,
+              );
+              let (nx1, ny1) = cellToWorld(next);
+              let (dx1, dy1) = (nx1 -. x, ny1 -. y);
+              let nextCellMag = sqrt(dx1 *. dx1 +. dy1 *. dy1);
+
+              let (currentCellx, currentCelly) = cellToWorld((cellX, cellY));
+              let (currentCelldx, currentCelldy) = (
+                currentCellx -. x,
+                currentCelly -. y,
+              );
+              let currentCellMag =
+                sqrt(
+                  currentCelldx
+                  *. currentCelldx
+                  +. currentCelldy
+                  *. currentCelldy,
+                );
+
+              let ratio = currentCellMag /. (currentCellMag +. nextCellMag);
+
+              let (nx2, ny2) = cellToWorld(nextnext);
+              let (dx2, dy2) = (nx2 -. nx1, ny2 -. ny1);
+              let (destX, destY) = (
+                nx1 +. dx2 *. ratio,
+                ny1 +. dy2 *. ratio,
+              );
+              let (destRelX, destRelY) = (destX -. x, destY -. y);
+              let mag = sqrt(destRelX *. destRelX +. destRelY *. destRelY);
+              Draw.stroke(Utils.color(0, 0, 255, 100), env);
+              Draw.strokeWeight(3, env);
+              Draw.linef(
+                ~p1=(x, y),
+                ~p2=(
+                  x +. destRelX /. mag *. speed *. dt,
+                  y +. destRelY /. mag *. speed *. dt,
+                ),
+                env,
+              );
+            };
+
+            let (prevX, prevY) = (ref(x), ref(y));
+            List.iter(
+              ((x, y)) => {
+                Draw.stroke(Utils.color(255, 0, 0, 100), env);
+                Draw.strokeWeight(3, env);
+                let (x, y) = (
+                  float_of_int(x) *. tileSizef,
+                  float_of_int(y) *. tileSizef,
+                );
+                Draw.linef(~p1=(prevX^, prevY^), ~p2=(x, y), env);
+                prevX := x;
+                prevY := y;
+              },
+              path,
+            );
+          };
+        };
+      };
+    },
     state.enemies,
   );
+
+  /*  let enemy1 = List.hd(state.enemies);
+
+      let (cellX, cellY) = (
+        int_of_float(floor((enemy1.pos.x -. tileSizef /. 2. -. halfPlayerSizef) /. tileSizef)),
+        int_of_float(floor((enemy1.pos.y -. tileSizef /. 2. -. halfPlayerSizef) /. tileSizef)),
+      );
+      if (cellX >= 0 && cellX < gridWidth && cellY >= 0 && cellY < gridHeight) {
+        let cell = state.grid[cellX][cellY];
+        if (!cell.collision) {
+          let l = Pathfinder.pathfind(pathfinder, (playerCellX, playerCellY), (cellX, cellY));
+
+          let (prevX, prevY) = (ref(enemy1.pos.x), ref(enemy1.pos.y));
+          List.iter(((x, y)) => {
+            Draw.stroke(Utils.color(255, 0, 0, 100), env);
+            Draw.strokeWeight(3, env);
+            let (x, y) = (
+                    backgroundImagePaddingXf +. float_of_int(x) *. tileSizef,
+                    backgroundImagePaddingYf +. float_of_int(y) *. tileSizef,
+                  );
+            Draw.linef(~p1=(prevX^, prevY^), ~p2=(x, y), env);
+            prevX := x;
+            prevY := y;
+          }, l);
+        }
+      };*/
+
+  /*let enemy2 = List.hd(List.tl(state.enemies));
+
+    let (cellX, cellY) = (
+      int_of_float(floor((enemy2.pos.x -. tileSizef /. 2. -. halfPlayerSizef) /. tileSizef)),
+      int_of_float(floor((enemy2.pos.y -. tileSizef /. 2. -. halfPlayerSizef) /. tileSizef)),
+    );
+    if (cellX >= 0 && cellX < gridWidth && cellY >= 0 && cellY < gridHeight) {
+      let cell = state.grid[cellX][cellY];
+      if (!cell.collision) {
+        let l = Pathfinder.pathfind(pathfinder, (playerCellX, playerCellY), (cellX, cellY));
+
+        let (prevX, prevY) = (ref(enemy2.pos.x), ref(enemy2.pos.y));
+        List.iter(((x, y)) => {
+          Draw.stroke(Utils.color(255, 0, 0, 100), env);
+          Draw.strokeWeight(3, env);
+          let (x, y) = (
+                  backgroundImagePaddingXf +. float_of_int(x) *. tileSizef,
+                  backgroundImagePaddingYf +. float_of_int(y) *. tileSizef,
+                );
+          Draw.linef(~p1=(prevX^, prevY^), ~p2=(x, y), env);
+          prevX := x;
+          prevY := y;
+        }, l);
+      }
+    };*/
 
   if (state.experiment == _DEBUG) {
     /* Draw pineapple dots */
@@ -968,7 +1155,7 @@ let draw = (state, env) => {
           Draw.strokeWeight(1, env);
           Draw.stroke(Constants.red, env);
         };
-        Draw.ellipsef(~center=(x, y), ~radx=4., ~rady=4., env)
+        Draw.ellipsef(~center=(x, y), ~radx=4., ~rady=4., env);
       },
       getVisibleEnemies(state, env),
     );
@@ -1001,11 +1188,12 @@ let draw = (state, env) => {
   switch (state.aim, Env.mousePressed(env)) {
   | (Aiming({x: sx, y: sy, points, startAimTime}), true) =>
     let currentWeapon = state.weapons[state.currentWeaponIndex];
-    let (sx, sy) = if (state.experiment == _JOYSTICK) {
-      (aimStartXf, aimStartYf)
-    } else {
-      (sx, sy)
-    };
+    let (sx, sy) =
+      if (state.experiment == _JOYSTICK) {
+        (aimStartXf, aimStartYf);
+      } else {
+        (sx, sy);
+      };
     let (dx, dy) =
       if (currentWeapon.kind == ShootsBehindYou) {
         (mx -. sx, my -. sy);
@@ -1027,11 +1215,11 @@ let draw = (state, env) => {
         ~p2=(playerXScreenf -. moveX, playerYScreenf -. moveY),
         env,
       );
-      
+
       if (currentWeapon.kind == ShootsBehindYou) {
         let (dx, dy) = (sx -. mx, sy -. my);
-      let   mag = sqrt(dx *. dx +. dy *. dy);
-        
+        let mag = sqrt(dx *. dx +. dy *. dy);
+
         let moveX = dx /. mag *. currentWeapon.playerTravelDistance;
         let moveY = dy /. mag *. currentWeapon.playerTravelDistance;
         Draw.strokeWeight(4, env);
@@ -1040,11 +1228,11 @@ let draw = (state, env) => {
           ~p1=(playerXScreenf, playerYScreenf),
           ~p2=(playerXScreenf -. moveX, playerYScreenf -. moveY),
           env,
-        );  
-      }
-      
+        );
+      };
+
       Draw.popStyle(env);
-      
+
       if (state.experiment == _DEBUG) {
         Draw.pushStyle(env);
         Draw.strokeWeight(1, env);
@@ -1052,12 +1240,20 @@ let draw = (state, env) => {
         Draw.linef(~p1=(sx, sy), ~p2=(mx, my), env);
         Draw.linef(
           ~p1=(playerXScreenf, playerYScreenf),
-          ~p2=(playerXScreenf -. moveX *. 100., playerYScreenf -. moveY *. 100.),
+          ~p2=(
+            playerXScreenf -. moveX *. 100.,
+            playerYScreenf -. moveY *. 100.,
+          ),
           env,
         );
 
-        Draw.ellipsef(~center=(windowWf -. 120., windowHf -. 120.), ~radx=60., ~rady=60., env)
-        
+        Draw.ellipsef(
+          ~center=(windowWf -. 120., windowHf -. 120.),
+          ~radx=60.,
+          ~rady=60.,
+          env,
+        );
+
         let shouldAssistAim =
           state.time -. startAimTime < autoaimDisengageTime;
         if (shouldAssistAim) {
@@ -1078,10 +1274,7 @@ let draw = (state, env) => {
           };
         };
         Draw.ellipsef(
-          ~center=(
-            playerXScreenf,
-            playerYScreenf,
-          ),
+          ~center=(playerXScreenf, playerYScreenf),
           ~radx=minFruitDistanceForAimAssist,
           ~rady=minFruitDistanceForAimAssist,
           env,
@@ -1091,68 +1284,65 @@ let draw = (state, env) => {
     };
   | _ => ()
   };
-  
-  Draw.fill(Utils.color(124, 10, 2, 255), env);
-  Draw.rectf(~pos=(22., 22.), ~width=104., ~height=28., env);
-  Draw.fill(Utils.color(30,100, 30, 255), env);
-  Draw.rectf(~pos=(24., 24.), ~width=float_of_int(state.health), ~height=24., env);
-  
-  if (state.experiment == _JOYSTICK) {
-        Draw.pushStyle(env);
-        Draw.stroke(Constants.red, env);
-        Draw.strokeWeight(1, env);
-        Draw.ellipsef(~center=(windowWf -. 120., windowHf -. 120.), ~radx=60., ~rady=60., env)
-        Draw.popStyle(env);
-      };
 
-  /* Draw the player */
-  Draw.image(
-    AssetMap.find("player", state.assetMap),
-    ~pos=(playerXScreen - halfPlayerSize, playerYScreen - halfPlayerSize),
-    ~width=220 / 5, 
-    ~height=311 / 5,
+  Draw.strokeWeight(1, env);
+  Draw.fill(Utils.color(124, 10, 2, 255), env);
+  Draw.rectf(~pos=(22., 42.), ~width=104., ~height=28., env);
+  Draw.fill(Utils.color(30, 100, 30, 255), env);
+  Draw.rectf(
+    ~pos=(24., 44.),
+    ~width=float_of_int(state.health),
+    ~height=24.,
     env,
   );
-  
-  if (state.health <= 0) {
-    let grid = parseMap(gridMap);
 
-  {
-    ...state,
-    deathTime: 3.,
-    x: 5. *. tileSizef,
-    y: 2. *. tileSizef,
-    time: 0.,
-    aim: Nothing,
-    health: 100,
-    enemies:
-      initList(100, _ =>
-        {
-          pos: {
-            x: Utils.randomf(~min=0., ~max=2000.),
-            y: Utils.randomf(~min=0., ~max=2000.),
-          },
-          speed: 50.,
-          error: {
-            x: 0.,
-            y: 0.,
-          },
-          timeUntilNextAttack: 0.
-        }
-      ),
-    assetMap: loadAssetMap(env, possibleFruits),
-    bullets: [],
-    splashes: [],
-    experiment: 0,
-    prevMouseState: false,
-    currentWeaponIndex: 0,
-    grid,
+  if (state.experiment == _JOYSTICK) {
+    Draw.pushStyle(env);
+    Draw.stroke(Constants.red, env);
+    Draw.strokeWeight(1, env);
+    Draw.ellipsef(
+      ~center=(windowWf -. 120., windowHf -. 120.),
+      ~radx=60.,
+      ~rady=60.,
+      env,
+    );
+    Draw.popStyle(env);
   };
+
+  /* Draw the player */
+  drawWithRotation(
+    AssetMap.find("player", state.assetMap),
+    ~pos=(playerXScreenf, playerYScreenf),
+    ~width=220./.6.,
+    ~height=311./.6.,
+    ~rot=0.,
+    env,
+  );
+
+  if (state.health <= 0) {
+    let (grid, enemies) = parseMap(gridMap);
+
+    {
+      ...state,
+      deathTime: 3.,
+      x: 5. *. tileSizef,
+      y: 2. *. tileSizef,
+      time: 0.,
+      aim: Nothing,
+      health: 100,
+      enemies,
+      assetMap: loadAssetMap(env, possibleFruits),
+      bullets: [],
+      splashes: [],
+      experiment: 0,
+      prevMouseState: false,
+      currentWeaponIndex: 0,
+      grid,
+    };
   } else {
     {...state, prevMouseState: Env.mousePressed(env)};
-  }
+  };
 };
-
 
 let run = (size, assetDir) =>
   Reprocessing.run(~setup=setup(size, assetDir), ~draw, ());

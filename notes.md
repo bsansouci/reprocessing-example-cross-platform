@@ -2,11 +2,12 @@ Important shit
 - smarter enemies
     + Path finding with corner cutting
     + make enemies that move enough that they're harder to hit (aim assist helps you less)
+    + make enemies curve around corners
 - Better collision (move until you actually hit the wall)
     + bullets shouldn't go through walls
 - try zoom out a bit
 - you need to die
-- 
+- aiming in a direction shifts the camera a bit, so that you can see more in that direction
 
 
 
@@ -29,4 +30,4 @@ Important shit
 
 
 Themes:
--  
+- little soldiers
