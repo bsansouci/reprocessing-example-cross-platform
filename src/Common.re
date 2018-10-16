@@ -11,8 +11,6 @@ let halfPlayerSizef = float_of_int(halfPlayerSize);
 let autoaimDisengageTime = 0.8;
 let enemyAttackDistance = 60.;
 
-
-
 type aimingPacketT = {
   x: float,
   y: float,
@@ -22,8 +20,7 @@ type aimingPacketT = {
 
 type aimT =
   | Nothing
-  | Aiming(aimingPacketT)
-  | Moving((float, float), (float, float), float, float);
+  | Aiming(aimingPacketT);
 
 type bulletT = {
   x: float,
@@ -44,6 +41,7 @@ type vec2 = {
   x: float,
   y: float,
 };
+let zeroVec = {x: 0., y: 0.};
 
 type enemyT = {
   pos: vec2,
@@ -51,7 +49,7 @@ type enemyT = {
   error: vec2,
   direction: vec2,
   timeUntilNextAttack: float,
-  path: list((int, int))
+  path: list((int, int)),
 };
 
 type soundsT = {enemyDeathSound: Reprocessing.soundT};
@@ -80,34 +78,42 @@ type tileT = {
 
 module AssetMap = Map.Make(String);
 
-
 type state = {
   x: float,
   y: float,
   time: float,
   health: int,
-  
   aim: aimT,
-  
   enemies: list(enemyT),
   splashes: list(splashT),
   bullets: list(bulletT),
-  
   bg: Reprocessing.imageT,
   cachedBackground: Reprocessing.imageT,
   assetMap: AssetMap.t(Reprocessing.imageT),
   sounds: soundsT,
-  
   prevMouseState: bool,
-  
   currentWeaponIndex: int,
   weapons: array(weaponsT),
-  
   grid: array(array(tileT)),
-  
   deathTime: float,
-  
   experiment: int,
+  currentMoveTime: float,
+  totalMoveTime: float,
+  velocity: vec2,
 };
 
-let cellToString = ((x, y)) => "(" ++ string_of_int(x) ++ ", " ++ string_of_int(y) ++ ")";
+let sp = Printf.sprintf;
+let print = Printf.printf;
+
+let cellToString = ((x, y)) =>
+  "(" ++ string_of_int(x) ++ ", " ++ string_of_int(y) ++ ")";
+
+let gridWidth = 50;
+let gridHeight = 10;
+
+let getCell = (grid, (cellX, cellY)) =>
+  if (cellX >= 0 && cellX < gridWidth && cellY >= 0 && cellY < gridHeight) {
+    grid[cellX][cellY];
+  } else {
+    {kind: Wall, collision: true};
+  };
