@@ -219,7 +219,7 @@ xxxxxxxxxxxxxx00000001000x00000000000000x00000000x
 x000000000000000000000100x0000x000000000x00000000x
 xxxxxxxxxxxxxx00000000000x0000x000000000x00000000x
 xxxxxxxxxxxxxx00000000100x0000x000000000x00000000x
-xxxxxxxxxxxxxx00000000100x0000x0000xxxxxx00000000x
+xxxxxxxxxxxxxx00000000200x0000x0000xxxxxx00000000x
 xxxxxxxxxxxxxx00000001000x0000x000000000000000000x
 xxxxxxxxxxxxxx00000001000x0000x000000000000000000x
 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -373,7 +373,7 @@ let moveBullets = (state, dt, env) =>
         | (None, Some((vx, vy))) => {
             ...state,
             bullets: [
-              {...bullet, x: x +. vx *. dt, y: y +. vy *. dt},
+              {...bullet, x: x +. vx *. dt, y: y +. vy *. dt, vx, vy},
               ...state.bullets,
             ],
           }
@@ -592,13 +592,8 @@ let runEnemyBehavior = (state, dt, pathfinderInstance, env) => {
                       )
                     ) {
                     | None => bullets
-                    | Some((resolvedVx, resolvedVy)) => [
-                        {
-                          x: x +. resolvedVx *. dt,
-                          y: y +. resolvedVy *. dt,
-                          vx: resolvedVx,
-                          vy: resolvedVy,
-                        },
+                    | Some((vx, vy)) => [
+                        {x: x +. vx *. dt, y: y +. vy *. dt, vx, vy},
                         ...bullets,
                       ]
                     };
@@ -616,7 +611,7 @@ let runEnemyBehavior = (state, dt, pathfinderInstance, env) => {
             {
               ...enemy,
               bullets: [
-                {x, y, vx: dx *. bulletSpeed, vy: dy *. bulletSpeed},
+                {x, y, vx: dx /. mag *. bulletSpeed, vy: dy /. mag *. bulletSpeed},
                 ...bullets,
               ],
             };
@@ -1155,15 +1150,36 @@ let drawSplashes = (state, env) =>
     state.splashes,
   );
 
+let drawBullets = (bullets, dt, env) =>
+  /* Draw the bullets.
+     Uses some super hacky angle calculation do draw bullets as ellipses pointing in the right
+     direction. */
+  List.iter(
+    ({x, y, vx, vy}: bulletT) => {
+      Draw.pushMatrix(env);
+      Draw.translate(~x=x -. 6., ~y=y -. 1., env);
+      Draw.rotate(
+        vy > 0. ?
+          acos(vx /. sqrt(vx *. vx +. vy *. vy)) :
+          Constants.pi /. 2. +. asin(vx /. sqrt(vx *. vx +. vy *. vy)),
+        env,
+      );
+      Draw.stroke(Constants.black, env);
+      Draw.ellipsef(~center=(0., 0.), ~radx=12., ~rady=2., env);
+      Draw.popMatrix(env);
+    },
+    bullets,
+  );
+
 let drawEnemies = (state, dt, realdt, pathfinderInstance, env) => {
   let (playerCellX, playerCellY) = (
     int_of_float(floor(state.x /. tileSizef)),
     int_of_float(floor(state.y /. tileSizef)),
   );
 
-  let visibleEnemies = getVisibleEnemies(state, env);
+  /*let visibleEnemies = getVisibleEnemies(state, env);*/
   List.iter(
-    ({pos: {x, y}, direction, speed}) => {
+    ({pos: {x, y}, direction, speed, bullets}) => {
       Draw.tint(Utils.color(~r=255, ~g=255, ~b=255, ~a=50), env);
       drawWithRotation(
         AssetMap.find("robot1", state.assetMap),
@@ -1197,6 +1213,8 @@ let drawEnemies = (state, dt, realdt, pathfinderInstance, env) => {
         ~rot=0.,
         env,
       );
+
+      drawBullets(bullets, dt, env);
 
       if (state.experiment == _DEBUG) {
         let (cellX, cellY) = (
@@ -1284,7 +1302,7 @@ let drawEnemies = (state, dt, realdt, pathfinderInstance, env) => {
         };
       };
     },
-    visibleEnemies,
+    state.enemies,
   );
 
   /* Draw pineapple dots */
@@ -1304,32 +1322,11 @@ let drawEnemies = (state, dt, realdt, pathfinderInstance, env) => {
         };
         Draw.ellipsef(~center=(x, y), ~radx=4., ~rady=4., env);
       },
-      visibleEnemies,
+      state.enemies,
     );
     Draw.popStyle(env);
   };
 };
-
-let drawBullets = (state, dt, env) =>
-  /* Draw the bullets.
-     Uses some super hacky angle calculation do draw bullets as ellipses pointing in the right
-     direction. */
-  List.iter(
-    ({x, y, vx, vy}: bulletT) => {
-      Draw.pushMatrix(env);
-      Draw.translate(~x=x -. 6., ~y=y -. 1., env);
-      Draw.rotate(
-        vy > 0. ?
-          acos(vx /. sqrt(vx *. vx +. vy *. vy)) :
-          Constants.pi /. 2. +. asin(vx /. sqrt(vx *. vx +. vy *. vy)),
-        env,
-      );
-      Draw.stroke(Constants.black, env);
-      Draw.ellipsef(~center=(0., 0.), ~radx=12., ~rady=2., env);
-      Draw.popMatrix(env);
-    },
-    state.bullets,
-  );
 
 let drawAimLine = (state, mx, my, playerXScreenf, playerYScreenf, env) =>
   switch (state.aim, Env.mousePressed(env)) {
@@ -1587,7 +1584,7 @@ let draw = (state, env) => {
 
   drawEnemies(state, dt, realdt, pathfinderInstance, env);
 
-  drawBullets(state, dt, env);
+  drawBullets(state.bullets, dt, env);
 
   Draw.popMatrix(env);
 
