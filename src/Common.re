@@ -43,6 +43,8 @@ type vec2 = {
 };
 let zeroVec = {x: 0., y: 0.};
 
+type enemyKindT = Melee | Shooter;
+
 type enemyT = {
   pos: vec2,
   speed: float,
@@ -50,6 +52,8 @@ type enemyT = {
   direction: vec2,
   timeUntilNextAttack: float,
   path: list((int, int)),
+  kind: enemyKindT,
+  bullets: list(bulletT),
 };
 
 type soundsT = {enemyDeathSound: Reprocessing.soundT};
