@@ -217,13 +217,13 @@ let (+/) = Filename.concat;
 let gridMap = {|
 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 x000000000x001000000x0001000000010000000x00000000x
-x000000100xxxx000000x0000000000000000000x00000000x
-x0000000000000000000x000100000x000100000x00000000x
-xxxxxxxx000000000000x000000000x000000000x00000000x
+x000000000xxxx000000x0000000000000000000x00000000x
+x0000000000111110000x000100000x000100000x00000000x
+xxxxxxxx000111110000x000000000x000000000x00000000x
 x001000000xxxx000000x000000000x000000000x00000000x
-x000000010x000100000x001000000x000010000x00000000x
-x000000000x0000000000000000000x001000000x00000000x
-x001000000x0000000000000000000x000000000x00000000x
+x000000010x000100000x001000000x0000xxxxxx00000000x
+x000000000x0000000000000000000x001001111100000000x
+x001000000x0000000000000000000x000001111100000000x
 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 |};
 
@@ -327,7 +327,7 @@ let setup = (size, assetDir, env) => {
       {
         length: 10,
         moveTime: 0.3,
-        playerTravelDistance: 40.,
+        playerTravelDistance: 80.,
         bulletSpeed: 400.,
         kind: Shotgun,
       },
@@ -477,6 +477,23 @@ let draw = (state, env) => {
     int_of_float(floor(state.x /. tileSizef)),
     int_of_float(floor(state.y /. tileSizef)),
   );
+
+  let enemyGridSize = Array.length(state.grid) / 3;
+  let enemiesInRegion =
+    List.fold_left(
+      (acc, {pos: {x, y}} as enemy) => {
+        let (cellX, cellY) = (
+          int_of_float(floor(x /. tileSizef)) / 3,
+          int_of_float(floor(y /. tileSizef)) / 3,
+        );
+        acc[cellX][cellY] = [enemy, ...acc[cellX][cellY]];
+        acc;
+      },
+      Array.make_matrix(enemyGridSize, enemyGridSize, []),
+      state.enemies,
+    );
+
+  let enemiesToPushAway = ref([]);
   let state = {
     ...state,
     enemies:
@@ -553,8 +570,33 @@ let draw = (state, env) => {
             let (resolvedVx, resolvedVy) =
               switch (resolveCollision(~state, ~dt, x, y, vx, vy)) {
               | None => (0., 0.)
-              | Some(dest) => dest
+              | Some(direction) => direction
               };
+
+            let enemiesInArea = enemiesInRegion[cellX / 3][cellY / 3];
+            let (resolvedVx, resolvedVy) =
+              List.fold_left(
+                ((resolvedVx, resolvedVy), otherEnemy) =>
+                  if (otherEnemy == enemy) {
+                    (resolvedVx, resolvedVy);
+                  } else {
+                    let (dx, dy) = (
+                      otherEnemy.pos.x -. (x +. resolvedVx *. dt),
+                      otherEnemy.pos.y -. (y +. resolvedVy *. dt),
+                    );
+                    let mag = sqrt(dx *. dx +. dy *. dy);
+                    if (mag < 30.) {
+                      (
+                        -. dx /. mag *. speed /. 2.,
+                        -. dy /. mag *. speed /. 2.,
+                      );
+                    } else {
+                      (resolvedVx, resolvedVy);
+                    };
+                  },
+                (resolvedVx, resolvedVy),
+                enemiesInArea,
+              );
 
             {
               ...enemy,
@@ -584,7 +626,7 @@ let draw = (state, env) => {
           if (mag < enemyAttackDistance) {
             {
               ...innerState,
-              health: health - 10,
+              health: health - 101,
               enemies:
                 List.map(
                   e => e == enemy ? {...e, timeUntilNextAttack: 1.} : e,

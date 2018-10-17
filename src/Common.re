@@ -9,7 +9,7 @@ let tileSize = 40;
 let tileSizef = float_of_int(tileSize);
 let halfPlayerSizef = float_of_int(halfPlayerSize);
 let autoaimDisengageTime = 0.8;
-let enemyAttackDistance = 60.;
+let enemyAttackDistance = 40.;
 
 type aimingPacketT = {
   x: float,
