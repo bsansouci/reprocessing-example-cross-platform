@@ -10,7 +10,10 @@
   ],
   "bs-dependencies": ["reprocessing"],
   "ocaml-dependencies": ["bigarray", "unix", ],
-  "package-specs": ["es6"],
+  // "package-specs": ["es6"],
+  // "ocaml-flags": ["-p", "-g"],
+  // "ocaml-linker-flags": ["-p"],
+  // "c-linker-flags": ["-g", "-ggdb"],
   "entries": [{
     "backend": "bytecode",
     "main-module": "IndexHot",
@@ -19,11 +22,11 @@
     "backend": "ios",
     "main-module": "Ios"
   }, {
-    "backend": "native",
+    "backend": ["native", "js"],
     "main-module": "Dev",
   }],
   "icon": "./icons/icon.png",
-  "appName": "CamlQuest",
-  "androidPackage": "com.jaredforsyth.reprocessing_example",
+  "appName": "SHLM!",
+  "androidPackage": "com.sansouci.SHLM",
   "refmt": 3,
 }

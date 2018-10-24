@@ -1,12 +1,47 @@
-Important shit 
+October 23rd
+- problem 1: Shotgun is OP
+    - Try adding health so shotgun kills in one shot
+    - Add power-ups
+    - Make enemies smarter by making them move away from the shotgun range
+- What if you had "puzzles" to solve during the play
+- Spawn monsters close to you so you don't go look for them
+- Enemies should be initialized at half max time so that they don't immediately shoot
+- Combos (2x, 3x...)
+- New weapon that gets one more bullet each time you hit (gets better at each hit)
+- If you're too close to the shooters, they should run away from you
+
+Name ideas
+- Super Line: Hot Miami
+- Super Hot Line Miami
+- SHLM!
+
+Walker
+- Maybe holding to move... Is an instinct
+
+Nathan
+- While you're aiming you should move time slightly faster
+- "revived, go fight" looks like a button that needs to be tapped
+- power ups
+    + one that pauses time
+    + an armor that protects you
+
+October 19th
+- problem 1: it's too easy and boring to shoot then move backwards, shoot, move backwards
+- problem 2: it's clearly optimal to shoot very fast
+    + **IDEA** That could be fixed by keeping time running at real time (not slowed down) when swiping before the end of the time deceleration. So for the next shot, the moving time is the same but time goes by faster. Effectively enemies and bullets travel faster for those shots, which might make it hard enough to balance things out.
+- problem 3: runners are utterly boring
+- problem 4: levels might be slow to design. They're very quick to go through, so I'd need like 30 levels at least.
+- I like the rooms + house idea of hotline miami. I kinda wanna copy that. But that means designing rooms, and the game is technically done after 1h of playing it. It might get more replayability with a bit of randomness in some areas. Actually the fact that it's not fully paused will add replayability, since enemies move in places that you wouldn't predict.
+- **IDEA** What if you carrier a melee weapon on you as well as a gun, so when enemies are close, you melee them. This means that runners are more like shields, they prevent you from touching a target that's further and they auto-trigger the melee attack preventing from even shooting.
+- **IDEA** Give enemy max shooting distance, so they don't shoot outside of the view (for most cases)
+- Don't remove enemies bullets when they die
+- Spawning in one big room
+- Add furniture 
+
+
+Older stuff
 - smarter enemies
-    + Path finding with corner cutting
     + make enemies that move enough that they're harder to hit (aim assist helps you less)
-    + make enemies curve around corners
-- Better collision (move until you actually hit the wall)
-    + bullets shouldn't go through walls
-- try zoom out a bit
-- you need to die
 - aiming in a direction shifts the camera a bit, so that you can see more in that direction
 
 

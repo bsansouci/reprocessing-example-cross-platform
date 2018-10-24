@@ -1,5 +1,5 @@
 {
-  "name": "reprocessing-example-cross-platform",
+  "name": "SHLM!",
   "version": "1.0.3",
   "scripts": {
     "start": "ios-deploy --bundle lib/bs/ios/App.app",
@@ -11,8 +11,8 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "ocaml-cross-mobile": "bsansouci/ocaml-cross-mobile",
-    "bsb-native": "bsansouci/bucklescript#ios"
+    "bsb-native": "bsansouci/bucklescript#ios",
+    "ocaml-cross-mobile": "bsansouci/ocaml-cross-mobile"
   },
   "dependencies": {
     "ios-deploy": "^1.9.3",

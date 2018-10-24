@@ -1,13 +1,17 @@
 let _DEBUG = 1;
 
-let _NUMBER_OF_EXPERIMENTS = 1;
+let _NUMBER_OF_EXPERIMENTS = 2;
+
+let _INVERTED_SHOOTING = 2;
 
 open Reprocessing;
 open Common;
 
-let drawWithRotation = (img, ~pos as (x, y), ~height, ~width, ~rot, env) => {
+let drawWithRotation =
+    (img, ~pos as (x, y), ~height, ~width, ~rot, ~scale=1.0, env) => {
   Draw.pushMatrix(env);
   Draw.translate(~x, ~y, env);
+  Draw.scale(globalScale, globalScale, env);
   Draw.rotate(rot, env);
   Draw.translate(~x=width /. (-2.), ~y=height /. (-2.), env);
   Draw.imagef(img, ~pos=(0., 0.), ~height, ~width, env);
@@ -54,17 +58,19 @@ let splitListAt = (li, index) => {
 };
 
 let bulletCollidesWithEnemies = ({x, y}: bulletT, enemies) => {
-  let rec loop = (enemiesRemaining, index) =>
+  let rec loop = enemiesRemaining =>
     switch (enemiesRemaining) {
     | [] => None
-    | [{pos: {x: sx, y: sy}}, ...restOfPineapples] =>
-      if (Utils.distf(~p1=(sx, sy), ~p2=(x, y)) < 30.) {
-        Some(index);
+    | [{id, isDead, pos: {x: sx, y: sy}}, ...restOfPineapples] =>
+      let enemyBoundingCircle = 30.;
+      if (!isDead
+          && Utils.distf(~p1=(sx, sy), ~p2=(x, y)) < enemyBoundingCircle) {
+        Some(id);
       } else {
-        loop(restOfPineapples, index + 1);
-      }
+        loop(restOfPineapples);
+      };
     };
-  loop(enemies, 0);
+  loop(enemies);
 };
 
 let loadAssetMap = (env, possibleFruits) => {
@@ -113,7 +119,9 @@ let getVisibleEnemies = (state, env) => {
 };
 
 let bulletIsOutOfRange = (state, bullet: bulletT, env) => {
-  let padding = (-20.);
+  /*print_endline(sp("asd: %f", bullet.timeRemaining));*/
+  bullet.timeRemaining <= 0.
+  /*let padding = (-20.);
   let wf = float_of_int(Env.width(env));
   let hf = float_of_int(Env.height(env));
   let screenCoordX = bullet.x -. state.x +. wf /. 2.;
@@ -123,32 +131,35 @@ let bulletIsOutOfRange = (state, bullet: bulletT, env) => {
   || screenCoordX < padding
   || screenCoordY > hf
   -. padding
-  || screenCoordY < padding;
+  || screenCoordY < padding;*/
 };
 
 let minFruitDistanceForAimAssist = 100.;
 let aimAssist = (state, dx, dy, mag, env) => {
   let (newdx, newdy, cosangle) =
     List.fold_left(
-      ((closestX, closestY, closestDot), {pos: {x, y}}) => {
-        let (vecToFruitX, vecToFruitY) = (state.x -. x, state.y -. y);
-        let distFromPlayerToFruit =
-          sqrt(vecToFruitX *. vecToFruitX +. vecToFruitY *. vecToFruitY);
-        let cosangle =
-          vecToFruitX
-          /. distFromPlayerToFruit
-          *. dx
-          /. mag
-          +. vecToFruitY
-          /. distFromPlayerToFruit
-          *. dy
-          /. mag;
-        if (cosangle > closestDot) {
-          (vecToFruitX, vecToFruitY, cosangle);
-        } else {
+      ((closestX, closestY, closestDot), {pos: {x, y}, isDead}) =>
+        if (isDead) {
           (closestX, closestY, closestDot);
-        };
-      },
+        } else {
+          let (vecToFruitX, vecToFruitY) = (state.x -. x, state.y -. y);
+          let distFromPlayerToFruit =
+            sqrt(vecToFruitX *. vecToFruitX +. vecToFruitY *. vecToFruitY);
+          let cosangle =
+            vecToFruitX
+            /. distFromPlayerToFruit
+            *. dx
+            /. mag
+            +. vecToFruitY
+            /. distFromPlayerToFruit
+            *. dy
+            /. mag;
+          if (cosangle > closestDot) {
+            (vecToFruitX, vecToFruitY, cosangle);
+          } else {
+            (closestX, closestY, closestDot);
+          };
+        },
       (dx, dy, 0.98),
       getVisibleEnemies(state, env),
     );
@@ -178,7 +189,7 @@ let resolveCollision = (~state, ~dt, ~allowSlide=true, x, y, vx, vy) => {
     if (!collides(x +. vx *. dt, y)) {
       (vx, false);
     } else if (!collides(x +. vx /. 2. *. dt, y)) {
-      (vx /. 2., false);
+      (vx /. 2., allowSlide ? false : true);
     } else {
       (0., true);
     };
@@ -187,7 +198,7 @@ let resolveCollision = (~state, ~dt, ~allowSlide=true, x, y, vx, vy) => {
     if (!collides(x, y +. vy *. dt)) {
       (vy, false);
     } else if (!collides(x, y +. vy /. 2. *. dt)) {
-      (vy /. 2., false);
+      (vy /. 2., allowSlide ? false : true);
     } else {
       (0., true);
     };
@@ -212,138 +223,46 @@ let easeInOutCubic = t =>
 
 let (+/) = Filename.concat;
 
-let gridMap = {|
-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxx00000100000x00000000000000x00000000x
-xxxxxxxxxxxxxx00000001000x00000000000000x00000000x
-x000000000000000000000100x0000x000000000x00000000x
-xxxxxxxxxxxxxx00000000000x0000x000000000x00000000x
-xxxxxxxxxxxxxx00000000100x0000x000000000x00000000x
-xxxxxxxxxxxxxx00000000200x0000x0000xxxxxx00000000x
-xxxxxxxxxxxxxx00000001000x0000x000000000000000000x
-xxxxxxxxxxxxxx00000001000x0000x000000000000000000x
-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-|};
-
-let parseMap = map => {
-  let grid =
-    Array.make_matrix(
-      gridWidth,
-      gridHeight,
-      {collision: false, kind: Floor},
-    );
-
-  let i = ref(0);
-  /* I think the string starts with a newline. */
-  let j = ref(-1);
-  let enemies = ref([]);
-  for (k in 0 to String.length(map) - 1) {
-    if (map.[k] == '\n') {
-      i := 0;
-      j := j^ + 1;
-    } else {
-      let cell =
-        switch (map.[k]) {
-        | 'x' => {collision: true, kind: Wall}
-        | '0' => {collision: false, kind: Floor}
-        | '1' =>
-          enemies :=
-            [
-              {
-                pos: {
-                  x: float_of_int(i^) *. tileSizef +. tileSizef /. 2.,
-                  y: float_of_int(j^) *. tileSizef +. tileSizef /. 2.,
-                },
-                direction: {
-                  x: 0.,
-                  y: 0.,
-                },
-                speed: 50.,
-                error: {
-                  x: 0.,
-                  y: 0.,
-                },
-                timeUntilNextAttack: 0.,
-                path: [],
-                kind: Melee,
-                bullets: [],
-              },
-              ...enemies^,
-            ];
-
-          {collision: false, kind: Floor};
-        | '2' =>
-          enemies :=
-            [
-              {
-                pos: {
-                  x: float_of_int(i^) *. tileSizef +. tileSizef /. 2.,
-                  y: float_of_int(j^) *. tileSizef +. tileSizef /. 2.,
-                },
-                direction: {
-                  x: 0.,
-                  y: 0.,
-                },
-                speed: 50.,
-                error: {
-                  x: 0.,
-                  y: 0.,
-                },
-                timeUntilNextAttack: 0.,
-                path: [],
-                kind: Shooter,
-                bullets: [],
-              },
-              ...enemies^,
-            ];
-
-          {collision: false, kind: Floor};
-        | _ => {collision: false, kind: Floor}
-        };
-      grid[i^][j^] = cell;
-      i := i^ + 1;
-    };
-  };
-  (grid, enemies^);
-};
-
 let cellToWorld = ((x, y)) => (
   float_of_int(x) *. tileSizef +. tileSizef /. 2.,
   float_of_int(y) *. tileSizef +. tileSizef /. 2.,
 );
 
-let slowDownTime = (state, realdt) =>
-  if (state.currentMoveTime < state.totalMoveTime) {
-    if (state.currentMoveTime < 0.01) {
-      realdt
-      /. Utils.lerpf(
-           ~value=
-             Utils.norm(~value=state.currentMoveTime, ~low=0., ~high=0.05),
-           ~low=slowMoveDivisor,
-           ~high=1.,
-         );
-    } else if (state.currentMoveTime >= 0.01
-               && state.currentMoveTime < state.totalMoveTime
-               -. 0.05) {
-      realdt;
+let slowDownTime = (~state, ~realdt, env) => 
+  /*if (state.currentMoveTime < state.totalMoveTime) {*/
+  if (state.currentMoveTime < 0.01) {
+    if (state.didTap) {
+      realdt /. slowMoveDivisor *. 2.
     } else {
-      realdt
-      /. Utils.lerpf(
-           ~value=
-             easeInOutCubic(
-               Utils.norm(
-                 ~value=state.currentMoveTime,
-                 ~low=state.totalMoveTime -. 0.05,
-                 ~high=state.totalMoveTime,
-               ),
-             ),
-           ~low=1.,
-           ~high=slowMoveDivisor,
-         );
-    };
+    realdt
+    /. Utils.lerpf(
+         ~value=Utils.norm(~value=state.currentMoveTime, ~low=0., ~high=0.01),
+         ~low=slowMoveDivisor,
+         ~high=1.,
+       );
+    }
+  } else if (state.currentMoveTime >= 0.01
+             && state.currentMoveTime < state.totalMoveTime
+             -. 0.02) {
+    realdt;
   } else {
-    realdt /. slowMoveDivisor;
+    realdt
+    /. Utils.lerpf(
+         ~value=
+           easeInOutCubic(
+             Utils.norm(
+               ~value=state.currentMoveTime,
+               ~low=state.totalMoveTime -. 0.02,
+               ~high=state.totalMoveTime,
+             ),
+           ),
+         ~low=1.,
+         ~high=slowMoveDivisor,
+       );
   };
+/*} else {
+    realdt /. slowMoveDivisor;
+  };*/
 
 let getTouchPositions = env =>
   switch (Env.changedTouches(env)) {
@@ -360,195 +279,224 @@ let getTouchPositions = env =>
     )
   };
 
-let moveBullets = (state, dt, env) =>
+let findClosestNonCollidableCell = (grid, x, y, cellX, cellY) => {
+  let cell = getCell(grid, (cellX, cellY));
+  if (cell.collision) {
+    let (cellXf, cellYf) = (float_of_int(cellX), float_of_int(cellY));
+    let neighbors = [
+      (cellXf +. 1., cellYf),
+      (cellXf -. 1., cellYf),
+      (cellXf +. 1., cellYf +. 1.),
+      (cellXf -. 1., cellYf +. 1.),
+      (cellXf +. 1., cellYf -. 1.),
+      (cellXf -. 1., cellYf -. 1.),
+      (cellXf, cellYf +. 1.),
+      (cellXf, cellYf -. 1.),
+    ];
+
+    let (closestCellX, closestCellY, _) =
+      List.fold_left(
+        ((closestCellX, closestCellY, closestDist), (neighborX, neighborY)) => {
+          let mag = Utils.distf(~p1=(x, y), ~p2=(neighborX, neighborY));
+          if (mag < closestDist
+              && !
+                   getCell(
+                     grid,
+                     (int_of_float(neighborX), int_of_float(neighborY)),
+                   ).
+                     collision) {
+            (neighborX, neighborY, mag);
+          } else {
+            (closestCellX, closestCellY, closestDist);
+          };
+        },
+        (cellXf, cellYf, 9999999.),
+        neighbors,
+      );
+    (int_of_float(closestCellX), int_of_float(closestCellY));
+  } else {
+    (cellX, cellY);
+  };
+};
+
+let moveBullets = (state, dt, ~removeIfTooFar=false, env) =>
   List.fold_left(
     (state, {x, y, vx, vy} as bullet: bulletT) =>
-      if (bulletIsOutOfRange(state, bullet, env)) {
-        state;
-      } else {
-        switch (
-          bulletCollidesWithEnemies(bullet, state.enemies),
-          resolveCollision(~state, ~dt, ~allowSlide=false, x, y, vx, vy),
-        ) {
-        | (None, Some((vx, vy))) => {
+      switch (
+        bulletCollidesWithEnemies(bullet, state.enemies),
+        resolveCollision(~state, ~dt, ~allowSlide=false, x, y, vx, vy),
+      ) {
+      | (None, Some((vx, vy))) =>
+        if (removeIfTooFar && bulletIsOutOfRange(state, bullet, env)) {
+          state;
+        } else {
+          {
             ...state,
             bullets: [
-              {...bullet, x: x +. vx *. dt, y: y +. vy *. dt, vx, vy},
+              {...bullet, x: x +. vx *. dt, y: y +. vy *. dt, timeRemaining: max(0., bullet.timeRemaining -. dt)},
               ...state.bullets,
             ],
-          }
-        | (_, None) => state
-        | (Some(index), _) =>
-          Env.playSound(
-            state.sounds.enemyDeathSound,
-            ~volume=1.0,
-            ~loop=false,
-            env,
-          );
-          switch (splitListAt(state.enemies, index)) {
-          | (headList, [{pos: {x: px, y: py}}, ...restOfTail]) => {
-              ...state,
-              enemies: headList @ restOfTail,
-              splashes: [
-                {
-                  x: px,
-                  y: py,
-                  width: Utils.randomf(~min=40., ~max=64.),
-                  height: Utils.randomf(~min=40., ~max=64.),
-                  rotation: Utils.randomf(~min=0., ~max=Constants.pi),
-                },
-                ...state.splashes,
-              ],
-            }
-          | _ => failwith("splitListAt returned something strange")
           };
+        }
+      | (_, None) => state
+      | (Some(id), _) =>
+        Env.playSound(
+          state.sounds.enemyDeathSound,
+          ~volume=1.0,
+          ~loop=false,
+          env,
+        );
+
+        let pos = ref(zeroVec);
+        let enemies =
+          List.map(
+            enemy =>
+              if (enemy.id == id) {
+                pos := enemy.pos;
+                {...enemy, isDead: true};
+              } else {
+                enemy;
+              },
+            state.enemies,
+          );
+        {
+          ...state,
+          enemies,
+          score: state.score + 1,
+          splashes: [
+            {
+              x: pos^.x,
+              y: pos^.y,
+              width: Utils.randomf(~min=40., ~max=64.),
+              height: Utils.randomf(~min=40., ~max=64.),
+              rotation: Utils.randomf(~min=0., ~max=Constants.pi),
+            },
+            ...state.splashes,
+          ],
         };
       },
     {...state, bullets: []},
     state.bullets,
   );
 
-let runEnemyBehavior = (state, dt, pathfinderInstance, env) => {
+let pushEnemyIfNecessary =
+    (~state, ~enemy, ~dt, ~enemiesInArea, resolvedVx, resolvedVy) =>
+  if (enemy.forcefullyMovedTimer <= 0.) {
+    List.fold_left(
+      ((resolvedVx, resolvedVy, alreadyForcedToMove), otherEnemy) =>
+        if (otherEnemy == enemy || otherEnemy.isDead) {
+          (resolvedVx, resolvedVy, alreadyForcedToMove);
+        } else {
+          let (dx, dy) = (
+            otherEnemy.pos.x -. (enemy.pos.x +. resolvedVx *. dt),
+            otherEnemy.pos.y -. (enemy.pos.y +. resolvedVy *. dt),
+          );
+          /* @Hack this probably causes enemies to be stuck in walls */
+          let mag = sqrt(dx *. dx +. dy *. dy);
+          if (mag < 30.) {
+            (
+              -. dx /. mag *. enemy.speed /. 2.,
+              -. dy /. mag *. enemy.speed /. 2.,
+              true,
+            );
+          } else {
+            (resolvedVx, resolvedVy, false);
+          };
+        },
+      (resolvedVx, resolvedVy, false),
+      enemiesInArea,
+    );
+  } else {
+    let (resolvedVx, resolvedVy) =
+      switch (
+        resolveCollision(
+          ~state,
+          ~dt,
+          enemy.pos.x,
+          enemy.pos.y,
+          enemy.direction.x,
+          enemy.direction.y,
+        )
+      ) {
+      | None => (0., 0.)
+      | Some(direction) => direction
+      };
+    (resolvedVx, resolvedVy, false);
+  };
+
+let moveEnemiesAndAttack = (state, dt, pathfinderInstance, env) => {
   let (playerCellX, playerCellY) = (
     int_of_float(floor(state.x /. tileSizef)),
     int_of_float(floor(state.y /. tileSizef)),
   );
-  let enemyGridSize = Array.length(state.grid) / 3;
+  let enemyGridScale = 3;
+  let enemyGridWidth = gridWidth / enemyGridScale;
+  let enemyGridHeight = gridHeight / enemyGridScale;
   let enemiesInRegion =
     List.fold_left(
-      (acc, {pos: {x, y}} as enemy) => {
-        let (cellX, cellY) = (
-          int_of_float(floor(x /. tileSizef)) / 3,
-          int_of_float(floor(y /. tileSizef)) / 3,
-        );
-        acc[cellX][cellY] = [enemy, ...acc[cellX][cellY]];
-        acc;
-      },
-      Array.make_matrix(enemyGridSize, enemyGridSize, []),
+      (acc, {pos: {x, y}, isDead} as enemy) =>
+        if (isDead) {
+          acc;
+        } else {
+          let (cellX, cellY) = (
+            int_of_float(floor(x /. tileSizef)) / enemyGridScale,
+            int_of_float(floor(y /. tileSizef)) / enemyGridScale,
+          );
+
+          /* @Hack this doesn't work for enemies too close to the right-most wall. It'll crash with
+             index out of bounds. */
+          acc[cellX][cellY] = [enemy, ...acc[cellX][cellY]];
+          acc;
+        },
+      Array.make_matrix(enemyGridWidth + 1, enemyGridHeight + 1, []),
       state.enemies,
     );
 
   let movedEnemies =
-    List.map(
-      ({pos: {x, y}, speed, error, timeUntilNextAttack, kind} as enemy) =>
-        switch (kind) {
-        | Melee =>
-          let (cellX, cellY) = (
-            int_of_float(floor(x /. tileSizef)),
-            int_of_float(floor(y /. tileSizef)),
-          );
-          let path =
-            Pathfinder.pathfind(
-              pathfinderInstance,
-              (playerCellX, playerCellY),
-              (cellX, cellY),
-            );
-          switch (path) {
-          | [] => {
-              ...enemy,
-              direction: {
-                x: 0.,
-                y: 0.,
-              },
-            }
-          | [_]
-          | [_, _] =>
-            let (dx, dy) = (state.x -. x, state.y -. y);
-            let mag = sqrt(dx *. dx +. dy *. dy);
-            let vx = dx /. mag *. speed;
-            let vy = dy /. mag *. speed;
-            {
-              ...enemy,
-              pos: {
-                x: x +. vx *. dt,
-                y: y +. vy *. dt,
-              },
-              direction: {
-                x: vx,
-                y: vy,
-              },
-              timeUntilNextAttack: max(0., timeUntilNextAttack -. dt),
-            };
-          | [_, next, nextnext, ...rest] =>
-            let (nx1, ny1) = cellToWorld(next);
-            let (dx1, dy1) = (nx1 -. x, ny1 -. y);
-            let nextCellMag = sqrt(dx1 *. dx1 +. dy1 *. dy1);
-
-            let (currentCellx, currentCelly) = cellToWorld((cellX, cellY));
-            let (currentCelldx, currentCelldy) = (
-              currentCellx -. x,
-              currentCelly -. y,
-            );
-            let currentCellMag =
-              sqrt(
-                currentCelldx
-                *. currentCelldx
-                +. currentCelldy
-                *. currentCelldy,
-              );
-
-            let ratio = currentCellMag /. (currentCellMag +. nextCellMag);
-
-            let (nx2, ny2) = cellToWorld(nextnext);
-            let (dx2, dy2) = (nx2 -. nx1, ny2 -. ny1);
-            let (destX, destY) = (nx1 +. dx2 *. ratio, ny1 +. dy2 *. ratio);
-            let (destRelX, destRelY) = (destX -. x, destY -. y);
-            let mag = sqrt(destRelX *. destRelX +. destRelY *. destRelY);
-            let vx = destRelX /. mag *. speed;
-            let vy = destRelY /. mag *. speed;
-
-            let (resolvedVx, resolvedVy) =
-              switch (resolveCollision(~state, ~dt, x, y, vx, vy)) {
-              | None => (0., 0.)
-              | Some(direction) => direction
-              };
-
-            let enemiesInArea = enemiesInRegion[cellX / 3][cellY / 3];
-            let (resolvedVx, resolvedVy) =
-              List.fold_left(
-                ((resolvedVx, resolvedVy), otherEnemy) =>
-                  if (otherEnemy == enemy) {
-                    (resolvedVx, resolvedVy);
-                  } else {
-                    let (dx, dy) = (
-                      otherEnemy.pos.x -. (x +. resolvedVx *. dt),
-                      otherEnemy.pos.y -. (y +. resolvedVy *. dt),
-                    );
-                    let mag = sqrt(dx *. dx +. dy *. dy);
-                    if (mag < 30.) {
-                      (
-                        -. dx /. mag *. speed /. 2.,
-                        -. dy /. mag *. speed /. 2.,
-                      );
-                    } else {
-                      (resolvedVx, resolvedVy);
-                    };
-                  },
-                (resolvedVx, resolvedVy),
-                enemiesInArea,
-              );
-
-            {
-              ...enemy,
-              pos: {
-                x: x +. resolvedVx *. dt,
-                y: y +. resolvedVy *. dt,
-              },
-              direction: {
-                x: resolvedVx,
-                y: resolvedVy,
-              },
-              timeUntilNextAttack: max(0., timeUntilNextAttack -. dt),
-            };
+    List.mapi(
+      (
+        i,
+        {
+          isDead,
+          pos: {x, y},
+          speed,
+          error,
+          timeUntilNextAttack,
+          forcefullyMovedTimer,
+          kind,
+        } as enemy,
+      ) =>
+        if (isDead) {
+          enemy;
+        } else {
+          let defaultEnemyUpdates = {
+            ...enemy,
+            forcefullyMovedTimer: max(0., forcefullyMovedTimer -. dt),
+            timeUntilNextAttack: max(0., timeUntilNextAttack -. dt),
           };
-        | Shooter =>
           let (cellX, cellY) = (
             int_of_float(floor(x /. tileSizef)),
             int_of_float(floor(y /. tileSizef)),
           );
-          let (dx, dy) = (state.x -. x, state.y -. y);
-          let mag = sqrt(dx *. dx +. dy *. dy);
-          let bulletCollidesWithWall = {
+          let (cellX, cellY) =
+            findClosestNonCollidableCell(state.grid, x, y, cellX, cellY);
+          /* This is in "realDt" time, which means it lasts wayyyy longer than 200ms. */
+          let forcefullyMovedTimerDefaultValue = 0.2;
+
+          let (playerDirectionX, playerDirectionY) = (
+            state.x -. x,
+            state.y -. y,
+          );
+          let mag =
+            sqrt(
+              playerDirectionX
+              *. playerDirectionX
+              +. playerDirectionY
+              *. playerDirectionY,
+            );
+
+          let isThereAWallBetweenTheEnemyAndThePlayer =
+              (mag, playerDirectionX, playerDirectionY) => {
             let step = tileSizef /. 2.;
             let numOfIterations = floor(mag /. step);
             let rec loop = i =>
@@ -557,155 +505,263 @@ let runEnemyBehavior = (state, dt, pathfinderInstance, env) => {
               } else {
                 let ratio = i /. numOfIterations;
                 let (cellX, cellY) = (
-                  int_of_float(floor((x +. dx *. ratio) /. tileSizef)),
-                  int_of_float(floor((y +. dy *. ratio) /. tileSizef)),
+                  int_of_float(
+                    floor((x +. playerDirectionX *. ratio) /. tileSizef),
+                  ),
+                  int_of_float(
+                    floor((y +. playerDirectionY *. ratio) /. tileSizef),
+                  ),
                 );
                 getCell(state.grid, (cellX, cellY)).collision
                 || loop(i +. 1.0);
               };
             loop(0.);
           };
+          /* Helper for moving towards the player instead of awkwardly pathfinding */
+          let moveInPlayerDirection =
+              (mag, playerDirectionX, playerDirectionY) => {
+            let vx = playerDirectionX /. mag *. speed;
+            let vy = playerDirectionY /. mag *. speed;
 
-          let damageToPlayer = ref(0.);
-          let bullets =
-            List.fold_left(
-              (bullets, {x, y, vx, vy} as bullet: bulletT) =>
-                if (bulletIsOutOfRange(state, bullet, env)) {
-                  bullets;
-                } else {
-                  let (dx, dy) = (state.x -. x, state.y -. y);
-                  let mag = sqrt(dx *. dx +. dy *. dy);
-                  if (mag < 30.) {
-                    let bulletDamage = 50.;
-                    damageToPlayer := damageToPlayer^ +. bulletDamage;
-                    bullets;
-                  } else {
-                    switch (
-                      resolveCollision(
-                        ~state,
-                        ~dt,
-                        ~allowSlide=false,
-                        x,
-                        y,
-                        vx,
-                        vy,
-                      )
-                    ) {
-                    | None => bullets
-                    | Some((vx, vy)) => [
-                        {x: x +. vx *. dt, y: y +. vy *. dt, vx, vy},
-                        ...bullets,
-                      ]
-                    };
-                  };
-                },
-              [],
-              enemy.bullets,
-            );
+            let (resolvedVx, resolvedVy) =
+              switch (resolveCollision(~state, ~dt, x, y, vx, vy)) {
+              | None => (0., 0.)
+              | Some(direction) => direction
+              };
 
-          if (!bulletCollidesWithWall
-              && mag < 400.
-              && timeUntilNextAttack <= 0.) {
-            let bulletSpeed = 600.;
+            let enemiesInArea = enemiesInRegion[cellX / enemyGridScale][cellY
+                                                                    / enemyGridScale];
+            let (resolvedVx, resolvedVy, forcedToMove) =
+              pushEnemyIfNecessary(
+                ~state,
+                ~enemy,
+                ~dt,
+                ~enemiesInArea,
+                resolvedVx,
+                resolvedVy,
+              );
 
             {
-              ...enemy,
-              bullets: [
-                {x, y, vx: dx /. mag *. bulletSpeed, vy: dy /. mag *. bulletSpeed},
-                ...bullets,
-              ],
+              ...defaultEnemyUpdates,
+              forcefullyMovedTimer:
+                forcedToMove ?
+                  forcefullyMovedTimerDefaultValue :
+                  defaultEnemyUpdates.forcefullyMovedTimer,
+              pos: {
+                x: x +. resolvedVx *. dt,
+                y: y +. resolvedVy *. dt,
+              },
+              direction: {
+                x: resolvedVx,
+                y: resolvedVy,
+              },
             };
-          } else {
+          };
+          switch (kind) {
+          | Melee =>
             let path =
               Pathfinder.pathfind(
                 pathfinderInstance,
                 (playerCellX, playerCellY),
                 (cellX, cellY),
               );
-            switch (path) {
-            | []
-            | [_]
-            | [_, _] => {
-                ...enemy,
+            let shouldFollowPath =
+              List.for_all(
+                ((x, y)) =>
+                  state.grid[x][y].kind != Door || !state.grid[x][y].collision,
+                path,
+              );
+            if (!shouldFollowPath) {
+              {
+                ...defaultEnemyUpdates,
                 direction: {
                   x: 0.,
                   y: 0.,
                 },
-              }
-            | [_, next, nextnext, ...rest] =>
-              let (nx1, ny1) = cellToWorld(next);
-              let (dx1, dy1) = (nx1 -. x, ny1 -. y);
-              let nextCellMag = sqrt(dx1 *. dx1 +. dy1 *. dy1);
-
-              let (currentCellx, currentCelly) = cellToWorld((cellX, cellY));
-              let (currentCelldx, currentCelldy) = (
-                currentCellx -. x,
-                currentCelly -. y,
-              );
-              let currentCellMag =
-                sqrt(
-                  currentCelldx
-                  *. currentCelldx
-                  +. currentCelldy
-                  *. currentCelldy,
+              };
+            } else {
+              /* @FixMe @Hack Somehow enemies keep swapping their direction and it doesn't make much sense.*/
+              switch (path) {
+              | [] => {
+                  ...defaultEnemyUpdates,
+                  direction: {
+                    x: 0.,
+                    y: 0.,
+                  },
+                }
+              | [_]
+              | [_, _] =>
+                moveInPlayerDirection(
+                  mag,
+                  playerDirectionX,
+                  playerDirectionY,
                 );
+              | [_, next, nextnext, ...rest] =>
+                let (nx1, ny1) = cellToWorld(next);
+                let (dx1, dy1) = (nx1 -. x, ny1 -. y);
+                let nextCellMag = sqrt(dx1 *. dx1 +. dy1 *. dy1);
 
-              let ratio = currentCellMag /. (currentCellMag +. nextCellMag);
+                let (currentCellx, currentCelly) =
+                  cellToWorld((cellX, cellY));
+                let (currentCelldx, currentCelldy) = (
+                  currentCellx -. x,
+                  currentCelly -. y,
+                );
+                let currentCellMag =
+                  sqrt(
+                    currentCelldx
+                    *. currentCelldx
+                    +. currentCelldy
+                    *. currentCelldy,
+                  );
 
-              let (nx2, ny2) = cellToWorld(nextnext);
-              let (dx2, dy2) = (nx2 -. nx1, ny2 -. ny1);
-              let (destX, destY) = (
-                nx1 +. dx2 *. ratio,
-                ny1 +. dy2 *. ratio,
-              );
-              let (destRelX, destRelY) = (destX -. x, destY -. y);
-              let mag = sqrt(destRelX *. destRelX +. destRelY *. destRelY);
-              let vx = destRelX /. mag *. speed;
-              let vy = destRelY /. mag *. speed;
+                let ratio = currentCellMag /. (currentCellMag +. nextCellMag);
 
-              let (resolvedVx, resolvedVy) =
-                switch (resolveCollision(~state, ~dt, x, y, vx, vy)) {
-                | None => (0., 0.)
-                | Some(direction) => direction
+                let (nx2, ny2) = cellToWorld(nextnext);
+                let (dx2, dy2) = (nx2 -. nx1, ny2 -. ny1);
+                let (destX, destY) = (
+                  nx1 +. dx2 *. ratio,
+                  ny1 +. dy2 *. ratio,
+                );
+                let (destRelX, destRelY) = (destX -. x, destY -. y);
+                let mag = sqrt(destRelX *. destRelX +. destRelY *. destRelY);
+                let vx = destRelX /. mag *. speed;
+                let vy = destRelY /. mag *. speed;
+                let (resolvedVx, resolvedVy, forcedToMove) = (vx, vy, false);
+                {
+                  ...defaultEnemyUpdates,
+                  forcefullyMovedTimer:
+                    forcedToMove ?
+                      forcefullyMovedTimerDefaultValue :
+                      defaultEnemyUpdates.forcefullyMovedTimer,
+                  pos: {
+                    x: x +. resolvedVx *. dt,
+                    y: y +. resolvedVy *. dt,
+                  },
+                  direction: {
+                    x: resolvedVx,
+                    y: resolvedVy,
+                  },
                 };
+              };
+            };
+          | Shooter =>
+            /* @Hack @FixMe had to disable pathfinding on the massive maps because it was too slow... */
+            let anyWallsInBetweenEnemyAndPlayer =
+              isThereAWallBetweenTheEnemyAndThePlayer(
+                mag,
+                playerDirectionX,
+                playerDirectionY,
+              );
 
-              let enemiesInArea = enemiesInRegion[cellX / 3][cellY / 3];
-              let (resolvedVx, resolvedVy) =
-                List.fold_left(
-                  ((resolvedVx, resolvedVy), otherEnemy) =>
-                    if (otherEnemy == enemy) {
-                      (resolvedVx, resolvedVy);
-                    } else {
-                      let (dx, dy) = (
-                        otherEnemy.pos.x -. (x +. resolvedVx *. dt),
-                        otherEnemy.pos.y -. (y +. resolvedVy *. dt),
-                      );
-                      let mag = sqrt(dx *. dx +. dy *. dy);
-                      if (mag < 30.) {
-                        (
-                          -. dx /. mag *. speed /. 2.,
-                          -. dy /. mag *. speed /. 2.,
-                        );
-                      } else {
-                        (resolvedVx, resolvedVy);
-                      };
+            if (!anyWallsInBetweenEnemyAndPlayer && mag < enemy.weaponRange) {
+              if (timeUntilNextAttack <= 0.) {
+                {
+                  ...defaultEnemyUpdates,
+                  timeUntilNextAttack: 1.,
+                  direction: {
+                    x: 0.,
+                    y: 0.,
+                  },
+                  bullets: [
+                    {
+                      x,
+                      y,
+                      vx: playerDirectionX /. mag *. enemy.bulletSpeed,
+                      vy: playerDirectionY /. mag *. enemy.bulletSpeed,
+                      timeRemaining: defaultEnemyUpdates.bulletLifeSpan,
                     },
-                  (resolvedVx, resolvedVy),
-                  enemiesInArea,
+                    ...enemy.bullets,
+                  ],
+                };
+              } else
+                {
+                  defaultEnemyUpdates;
+                };
+                /*            } else if (!anyWallsInBetweenEnemyAndPlayer) {
+                              moveInPlayerDirection(mag, playerDirectionX, playerDirectionY);*/
+            } else {
+              let path =
+                Pathfinder.pathfind(
+                  pathfinderInstance,
+                  (playerCellX, playerCellY),
+                  (cellX, cellY),
                 );
+              switch (path) {
+              | [] => {
+                  ...defaultEnemyUpdates,
+                  direction: {
+                    x: 0.,
+                    y: 0.,
+                  },
+                }
+              | [_]
+              | [_, _] =>
+                moveInPlayerDirection(mag, playerDirectionX, playerDirectionY)
+              | [_, next, nextnext, ...rest] =>
+                let (nx1, ny1) = cellToWorld(next);
+                let (dx1, dy1) = (nx1 -. x, ny1 -. y);
+                let nextCellMag = sqrt(dx1 *. dx1 +. dy1 *. dy1);
 
-              {
-                ...enemy,
-                pos: {
-                  x: x +. resolvedVx *. dt,
-                  y: y +. resolvedVy *. dt,
-                },
-                direction: {
-                  x: resolvedVx,
-                  y: resolvedVy,
-                },
-                timeUntilNextAttack: max(0., timeUntilNextAttack -. dt),
-                bullets,
+                let (currentCellx, currentCelly) =
+                  cellToWorld((cellX, cellY));
+                let (currentCelldx, currentCelldy) = (
+                  currentCellx -. x,
+                  currentCelly -. y,
+                );
+                let currentCellMag =
+                  sqrt(
+                    currentCelldx
+                    *. currentCelldx
+                    +. currentCelldy
+                    *. currentCelldy,
+                  );
+
+                let ratio = currentCellMag /. (currentCellMag +. nextCellMag);
+
+                let (nx2, ny2) = cellToWorld(nextnext);
+                let (dx2, dy2) = (nx2 -. nx1, ny2 -. ny1);
+                let (destX, destY) = (
+                  nx1 +. dx2 *. ratio,
+                  ny1 +. dy2 *. ratio,
+                );
+                let (destRelX, destRelY) = (destX -. x, destY -. y);
+                let mag = sqrt(destRelX *. destRelX +. destRelY *. destRelY);
+                let vx = destRelX /. mag *. speed;
+                let vy = destRelY /. mag *. speed;
+
+                let (resolvedVx, resolvedVy) =
+                  switch (resolveCollision(~state, ~dt, x, y, vx, vy)) {
+                  | None => (0., 0.)
+                  | Some(direction) => direction
+                  };
+
+                let enemiesInArea = enemiesInRegion[cellX / enemyGridScale][cellY
+                                                                    / enemyGridScale];
+                let (resolvedVx, resolvedVy, forcedToMove) =
+                  pushEnemyIfNecessary(
+                    ~state,
+                    ~enemy,
+                    ~dt,
+                    ~enemiesInArea,
+                    resolvedVx,
+                    resolvedVy,
+                  );
+                {
+                  ...defaultEnemyUpdates,
+                  forcefullyMovedTimer:
+                    forcedToMove ?
+                      forcefullyMovedTimerDefaultValue :
+                      defaultEnemyUpdates.forcefullyMovedTimer,
+                  pos: {
+                    x: x +. resolvedVx *. dt,
+                    y: y +. resolvedVy *. dt,
+                  },
+                  direction: {
+                    x: resolvedVx,
+                    y: resolvedVy,
+                  },
+                };
               };
             };
           };
@@ -713,46 +769,185 @@ let runEnemyBehavior = (state, dt, pathfinderInstance, env) => {
       state.enemies,
     );
 
+  /* Manage attacking */
   let (health, enemies) =
     List.fold_left(
       (
         (health, enemies),
-        {pos: {x, y}, timeUntilNextAttack, kind} as enemy,
+        {pos: {x, y}, isDead, timeUntilNextAttack, kind} as enemy,
       ) =>
-        if (kind == Melee && timeUntilNextAttack <= 0.) {
-          let dx = state.x -. x;
-          let dy = state.y -. y;
-          let mag = sqrt(dx *. dx +. dy *. dy);
-          if (mag < enemyAttackDistance) {
-            (
-              health - 101,
-              List.map(
-                e => e == enemy ? {...e, timeUntilNextAttack: 1.} : e,
-                enemies,
-              ),
-            );
+        switch (kind) {
+        | Melee =>
+          if (isDead) {
+            (health, [enemy, ...enemies]);
+          } else if (timeUntilNextAttack <= 0.) {
+            let dx = state.x -. x;
+            let dy = state.y -. y;
+            let mag = sqrt(dx *. dx +. dy *. dy);
+            if (mag < enemyAttackDistance) {
+              (
+                health - 101,
+                [{...enemy, timeUntilNextAttack: 1.}, ...enemies],
+              );
+            } else {
+              (health, [enemy, ...enemies]);
+            };
           } else {
-            (health, enemies);
-          };
-        } else {
-          (health, enemies);
+            (health, [enemy, ...enemies]);
+          }
+        | Shooter =>
+          let (health, bullets) =
+            List.fold_left(
+              ((health, bullets), {x, y, vx, vy} as bullet: bulletT) => {
+                let (playerDirectionX, playerDirectionY) = (
+                  state.x -. x,
+                  state.y -. y,
+                );
+                let mag =
+                  sqrt(
+                    playerDirectionX
+                    *. playerDirectionX
+                    +. playerDirectionY
+                    *. playerDirectionY,
+                  );
+                let playerBoundingCircle = 20.;
+                if (mag < playerBoundingCircle) {
+                  Env.playSound(
+                    state.sounds.playerShotSound,
+                    ~volume=1.0,
+                    ~loop=false,
+                    env,
+                  );
+                  (health - enemy.bulletDamage, bullets);
+                } else {
+                  switch (
+                    resolveCollision(
+                      ~state,
+                      ~dt,
+                      ~allowSlide=false,
+                      x,
+                      y,
+                      vx,
+                      vy,
+                    )
+                  ) {
+                  | None => (health, bullets)
+                  | Some((vx, vy)) => (
+                      health,
+                      [
+                        {x: x +. vx *. dt, y: y +. vy *. dt, vx, vy, timeRemaining: bullet.timeRemaining -. dt},
+                        ...bullets,
+                      ],
+                    )
+                  };
+                };
+              },
+              (health, []),
+              enemy.bullets,
+            );
+          (health, [{...enemy, bullets}, ...enemies]);
         },
-      (state.health, movedEnemies),
+      (state.health, []),
       movedEnemies,
     );
+    /* @Hack rev the enemies here because the fold_left reverses their order, making their order annoyingly unpredictable. */
+    let enemies = List.rev(enemies);
   {...state, enemies, health};
 };
 
-let handleTapOnWeaponSwapButton =
-    (state, mx, my, playerXScreen, playerYScreen, env) => {
+let spawnNewEnemies = (state, ~outsideOfFieldOfView=false, env) => {
+  let (cellX, cellY) = (
+    int_of_float(floor(state.x /. tileSizef)),
+    int_of_float(floor(state.y /. tileSizef)),
+  );
+  let (cellNumWidth, cellNumHeight) = (
+    Env.width(env) / tileSize,
+    Env.height(env) / tileSize,
+  );
+  let x = ref(-1);
+  let y = ref(-1);
+
+  while (getCell(state.grid, (x^, y^)).collision) {
+    if (outsideOfFieldOfView) {
+      let whichQuadrant = Utils.random(~min=0, ~max=4);
+      /*print_endline(sp("Which quadrant %d", whichQuadrant));*/
+      let (minX, maxX, minY, maxY) =
+        if (whichQuadrant == 0) {
+          (0, gridWidth, 0, max(0, cellY - cellNumHeight / 2));
+        } else if (whichQuadrant == 1) {
+          (
+            min(gridWidth, cellX + cellNumWidth / 2),
+            gridWidth,
+            0,
+            gridHeight,
+          );
+        } else if (whichQuadrant == 2) {
+          (
+            0,
+            gridWidth,
+            min(gridHeight, cellY + cellNumHeight / 2),
+            gridHeight,
+          );
+        } else {
+          (0, max(0, cellX - cellNumWidth / 2), 0, gridHeight);
+        };
+      if (minX != maxX && minY != maxY) {
+        /*print_endline(
+            sp("minX %d maxX %d minY %d maxY %d", minX, maxX, minY, maxY),
+          );*/
+        x := Utils.random(~min=minX, ~max=maxX);
+        y := Utils.random(~min=minY, ~max=maxY);
+      };
+    } else {
+      x := Utils.random(~min=0, ~max=gridWidth);
+      y := Utils.random(~min=0, ~max=gridHeight);
+    };
+  };
+  
+  let isShooter = Utils.randomf(~min=0., ~max=1.) < 0.7;
+  
+  let enemies = [
+    {
+      id: makeEnemyID(),
+      pos: {
+        x: float_of_int(x^) *. tileSizef +. tileSizef /. 2.,
+        y: float_of_int(y^) *. tileSizef +. tileSizef /. 2.,
+      },
+      direction: {
+        x: 0.,
+        y: 0.,
+      },
+      speed: 120.,
+      error: {
+        x: 0.,
+        y: 0.,
+      },
+      timeUntilNextAttack: 0.,
+      forcefullyMovedTimer: 0.,
+      path: [],
+      kind: isShooter ? Shooter : Melee,
+      bullets: [],
+      bulletSpeed: isShooter ? 300. : 0.,
+      bulletDamage: isShooter ? 100 : 0,
+      weaponRange: isShooter ? 200. : 0.,
+      isDead: false,
+      bulletLifeSpan: 2.,
+    },
+    ...state.enemies,
+  ];
+  {...state, enemies};
+};
+
+let checkSwapWeaponButton =
+    (state, mx, my, playerXScreenf, playerYScreenf, env) => {
   let (swapWeaponsButtonWidth, swapWeaponsButtonHeight) = (64., 64.);
   let (swapWeaponsButtonX, swapWeaponsButtonY) = (
-    float_of_int(playerXScreen - halfPlayerSize),
-    float_of_int(playerYScreen - halfPlayerSize),
+    playerXScreenf -. float_of_int(halfPlayerSize),
+    playerYScreenf -. float_of_int(halfPlayerSize),
   );
   switch (state.aim, Env.mousePressed(env)) {
   | (Aiming({x: sx, y: sy, points, startAimTime}), false)
-      when state.prevMouseState =>
+      when state.prevMouseState || state.didTap =>
     /* Self induced difficulty here. I wanted to allow swipes on the button, just in case you'd  accidentally swipe on the button. So on top of checking if you released your finger on the button we also check if you were aiming and how far you moved when aiming. If the max displacement from the start point is beyond a certain threshold, we don't consider this a tap. */
     let maxDeltaFromStartPoint =
       List.fold_left(
@@ -769,7 +964,7 @@ let handleTapOnWeaponSwapButton =
         0.,
         points,
       );
-    if (state.prevMouseState
+    if ((state.prevMouseState || state.didTap)
         && mx > swapWeaponsButtonX
         && mx < swapWeaponsButtonX
         +. swapWeaponsButtonWidth
@@ -814,247 +1009,240 @@ let handleTapOnWeaponSwapButton =
   };
 };
 
-let handlePlayerShootingBehavior =
-    (state, dt, didTapOnSwapButton, mx, my, env) => {
-  let (devButtonX, devButtonY) = (60., 60.);
-
-  if (state.prevMouseState
-      && !Env.mousePressed(env)
-      && mx < devButtonX
-      && my < devButtonY) {
-    {
-      ...state,
-      experiment: (state.experiment + 1) mod (_NUMBER_OF_EXPERIMENTS + 1),
-    };
-  } else {
-    let state =
-      switch (state.aim, Env.mousePressed(env)) {
-      | (Aiming({x: sx, y: sy, points} as aiming), true) =>
-        let dx = sx -. mx;
-        let dy = sy -. my;
-        let aimCap = 50.;
-        let mag = sqrt(dx *. dx +. dy *. dy);
-        let (sx, sy) =
-          if (mag > aimCap) {
-            (mx +. dx /. mag *. 50., my +. dy /. mag *. 50.);
-          } else {
-            (sx, sy);
-          };
-        {
-          ...state,
-          aim:
-            Aiming({
-              ...aiming,
-              x: sx,
-              y: sy,
-              points: [(mx, my), ...points],
-            }),
+let movePlayerAndAttack = (state, dt, didTapOnSwapButton, mx, my, env) => {
+  let state =
+    switch (state.aim, Env.mousePressed(env)) {
+    | (Aiming({x: sx, y: sy, points} as aiming), true) => state
+    /*let (dx, dy) = (sx -. mx, sy -. my);
+      let aimCap = 50.;
+      let mag = sqrt(dx *. dx +. dy *. dy);
+      let (sx, sy) =
+        if (mag > aimCap) {
+          (mx +. dx /. mag *. 50., my +. dy /. mag *. 50.);
+        } else {
+          (sx, sy);
         };
-      | (Nothing, false) => state
-      | (Nothing, true) => {
-          ...state,
-          aim: Aiming({x: mx, y: my, points: [], startAimTime: state.time}),
-        }
-      | (Aiming({x: sx, y: sy, points, startAimTime}), false) =>
-        if (!didTapOnSwapButton) {
-          let currentWeapon = state.weapons[state.currentWeaponIndex];
+      {
+        ...state,
+        aim:
+          Aiming({...aiming, x: sx, y: sy, points: [(mx, my), ...points]}),
+      };*/
+    | (Nothing, false) => state
+    | (Nothing, true) => {
+        ...state,
+        aim: Aiming({x: mx, y: my, points: [], startAimTime: state.time}),
+      }
+    | (Aiming({x: sx, y: sy, points, startAimTime}), false) =>
+      if (!didTapOnSwapButton) {
+        let currentWeapon = state.weapons[state.currentWeaponIndex];
+        let (dx, dy) =
+          if (currentWeapon.kind == ShootsBehindYou
+              || state.experiment == _INVERTED_SHOOTING) {
+            (mx -. sx, my -. sy);
+          } else {
+            (sx -. mx, sy -. my);
+          };
+
+        let mag = sqrt(dx *. dx +. dy *. dy);
+
+        let isGestureAFlick = List.length(points) < 10;
+        let (dx, dy) =
+          if (isGestureAFlick) {
+            let numberOfPointsToAverage = 3;
+            let firstCoupleOfPoints =
+              if (List.length(points) >= numberOfPointsToAverage) {
+                let (firstCoupleOfPoints, _) =
+                  splitListAt(points, numberOfPointsToAverage);
+                firstCoupleOfPoints;
+              } else {
+                points;
+              };
+
+            let (dx, dy) =
+              if (currentWeapon.kind == ShootsBehindYou
+                  || state.experiment == _INVERTED_SHOOTING) {
+                List.fold_left(
+                  ((dx, dy), (x, y)) => (dx +. (x -. sx), dy +. (y -. sy)),
+                  (dx, dy),
+                  firstCoupleOfPoints,
+                );
+              } else {
+                List.fold_left(
+                  ((dx, dy), (x, y)) => (dx +. (sx -. x), dy +. (sy -. y)),
+                  (dx, dy),
+                  firstCoupleOfPoints,
+                );
+              };
+
+            (
+              dx /. float_of_int(numberOfPointsToAverage),
+              dy /. float_of_int(numberOfPointsToAverage),
+            );
+          } else {
+            (dx, dy);
+          };
+
+        let shouldAssistAim =
+          state.time
+          -. startAimTime < autoaimDisengageTime
+          && currentWeapon.kind != Shotgun;
+        let (aimAssistdx, aimAssistdy) =
+          if (shouldAssistAim) {
+            let (dx, dy, _) = aimAssist(state, dx, dy, mag, env);
+            (dx, dy);
+          } else {
+            (dx, dy);
+          };
+        /* We check if the user moved their finger enough to make a movement vector. This allows the user to cancel their movement. */
+        if (mag > 20.) {
+          let mag = sqrt(dx *. dx +. dy *. dy);
+          let aimAssistmag =
+            sqrt(aimAssistdx *. aimAssistdx +. aimAssistdy *. aimAssistdy);
+          let bulletSpeed = currentWeapon.bulletSpeed;
+
+          /* The movement goes in the other direction when the player's holding the
+             ShootsBehindYou gun. Everything other than the movement (the aim and bullet) goes in the normal direction. */
           let (dx, dy) =
             if (currentWeapon.kind == ShootsBehindYou) {
-              (mx -. sx, my -. sy);
-            } else {
-              (sx -. mx, sy -. my);
-            };
-
-          let mag = sqrt(dx *. dx +. dy *. dy);
-
-          let isGestureAFlick = List.length(points) < 10;
-          let (dx, dy) =
-            if (isGestureAFlick) {
-              let numberOfPointsToAverage = 3;
-              let firstCoupleOfPoints =
-                if (List.length(points) >= numberOfPointsToAverage) {
-                  let (firstCoupleOfPoints, _) =
-                    splitListAt(points, numberOfPointsToAverage);
-                  firstCoupleOfPoints;
-                } else {
-                  points;
-                };
-
-              let (dx, dy) =
-                if (currentWeapon.kind == ShootsBehindYou) {
-                  List.fold_left(
-                    ((dx, dy), (x, y)) => (
-                      dx +. (x -. sx),
-                      dy +. (y -. sy),
-                    ),
-                    (dx, dy),
-                    firstCoupleOfPoints,
-                  );
-                } else {
-                  List.fold_left(
-                    ((dx, dy), (x, y)) => (
-                      dx +. (sx -. x),
-                      dy +. (sy -. y),
-                    ),
-                    (dx, dy),
-                    firstCoupleOfPoints,
-                  );
-                };
-
-              (
-                dx /. float_of_int(numberOfPointsToAverage),
-                dy /. float_of_int(numberOfPointsToAverage),
-              );
+              (-. dx, -. dy);
             } else {
               (dx, dy);
             };
 
-          let shouldAssistAim =
-            state.time
-            -. startAimTime < autoaimDisengageTime
-            && currentWeapon.kind != Shotgun;
-          let (aimAssistdx, aimAssistdy) =
-            if (shouldAssistAim) {
-              let (dx, dy, _) = aimAssist(state, dx, dy, mag, env);
-              (dx, dy);
-            } else {
-              (dx, dy);
-            };
-          /* We check if the user moved their finger enough to make a movement vector. This allows the user to cancel their movement. */
-          if (mag > 20.) {
-            let mag = sqrt(dx *. dx +. dy *. dy);
-            let aimAssistmag =
-              sqrt(aimAssistdx *. aimAssistdx +. aimAssistdy *. aimAssistdy);
-            let bulletSpeed = currentWeapon.bulletSpeed;
-
-            /* The movement goes in the other direction when the player's holding the
-               ShootsBehindYou gun. Everything other than the movement (the aim and bullet) goes in the normal direction. */
-            let (dx, dy) =
-              if (currentWeapon.kind == ShootsBehindYou) {
-                (-. dx, -. dy);
-              } else {
-                (dx, dy);
-              };
-
-            /* Don't do collision detection here, do it while the player's moving */
-            let (velocity, currentMoveTime, totalMoveTime) = (
-              {
-                x:
-                  -. dx
-                  /. mag
-                  *. currentWeapon.playerTravelDistance
-                  /. currentWeapon.moveTime,
-                y:
-                  -. dy
-                  /. mag
-                  *. currentWeapon.playerTravelDistance
-                  /. currentWeapon.moveTime,
-              },
-              0.,
-              currentWeapon.moveTime,
-            );
-            let (dirX, dirY) = (
-              aimAssistdx /. aimAssistmag,
-              aimAssistdy /. aimAssistmag,
-            );
-            let bullets =
-              if (currentWeapon.kind == Shotgun) {
-                [
-                  {
-                    x: state.x -. dirX *. halfPlayerSizef,
-                    y: state.y -. dirY *. halfPlayerSizef,
-                    vx: -. dirX *. bulletSpeed,
-                    vy: -. dirY *. bulletSpeed,
-                  },
-                  {
-                    x: state.x -. dirX *. halfPlayerSizef,
-                    y: state.y -. dirY *. halfPlayerSizef,
-                    vx:
-                      -. (dirX +. Utils.randomf(~min=-0.3, ~max=0.3))
-                      *. bulletSpeed,
-                    vy:
-                      -. (dirY +. Utils.randomf(~min=-0.3, ~max=0.3))
-                      *. bulletSpeed,
-                  },
-                  {
-                    x: state.x -. dirX *. halfPlayerSizef,
-                    y: state.y -. dirY *. halfPlayerSizef,
-                    vx:
-                      -. (dirX +. Utils.randomf(~min=-0.3, ~max=0.3))
-                      *. bulletSpeed,
-                    vy:
-                      -. (dirY +. Utils.randomf(~min=-0.3, ~max=0.3))
-                      *. bulletSpeed,
-                  },
-                  {
-                    x: state.x -. dirX *. halfPlayerSizef,
-                    y: state.y -. dirY *. halfPlayerSizef,
-                    vx:
-                      -. (dirX +. Utils.randomf(~min=-0.3, ~max=0.3))
-                      *. bulletSpeed,
-                    vy:
-                      -. (dirY +. Utils.randomf(~min=-0.3, ~max=0.3))
-                      *. bulletSpeed,
-                  },
-                  ...state.bullets,
-                ];
-              } else {
-                [
-                  {
-                    x: state.x -. dirX *. halfPlayerSizef,
-                    y: state.y -. dirY *. halfPlayerSizef,
-                    vx: -. dirX *. bulletSpeed,
-                    vy: -. dirY *. bulletSpeed,
-                  },
-                  ...state.bullets,
-                ];
-              };
+          /* Don't do collision detection here, do it while the player's moving */
+          let (velocity, currentMoveTime, totalMoveTime) = (
             {
-              ...state,
-              aim: Nothing,
-              currentMoveTime,
-              totalMoveTime,
-              velocity,
-              bullets,
+              x:
+                -. dx
+                /. mag
+                *. currentWeapon.playerTravelDistance
+                /. currentWeapon.moveTime,
+              y:
+                -. dy
+                /. mag
+                *. currentWeapon.playerTravelDistance
+                /. currentWeapon.moveTime,
+            },
+            0.,
+            currentWeapon.moveTime,
+          );
+          let (dirX, dirY) = (
+            aimAssistdx /. aimAssistmag,
+            aimAssistdy /. aimAssistmag,
+          );
+          let bullets =
+            if (currentWeapon.kind == Shotgun) {
+              [
+                {
+                  timeRemaining: currentWeapon.bulletLifeSpan,
+                  x: state.x -. dirX *. halfPlayerSizef,
+                  y: state.y -. dirY *. halfPlayerSizef,
+                  vx: -. dirX *. bulletSpeed,
+                  vy: -. dirY *. bulletSpeed,
+                },
+                {
+                  timeRemaining: currentWeapon.bulletLifeSpan,
+                  x: state.x -. dirX *. halfPlayerSizef,
+                  y: state.y -. dirY *. halfPlayerSizef,
+                  vx:
+                    -. (dirX +. Utils.randomf(~min=-0.3, ~max=0.3))
+                    *. bulletSpeed,
+                  vy:
+                    -. (dirY +. Utils.randomf(~min=-0.3, ~max=0.3))
+                    *. bulletSpeed,
+                },
+                {
+                  timeRemaining: currentWeapon.bulletLifeSpan,
+                  
+                  x: state.x -. dirX *. halfPlayerSizef,
+                  y: state.y -. dirY *. halfPlayerSizef,
+                  vx:
+                    -. (dirX +. Utils.randomf(~min=-0.3, ~max=0.3))
+                    *. bulletSpeed,
+                  vy:
+                    -. (dirY +. Utils.randomf(~min=-0.3, ~max=0.3))
+                    *. bulletSpeed,
+                },
+                {
+                  timeRemaining: currentWeapon.bulletLifeSpan,
+                  
+                  x: state.x -. dirX *. halfPlayerSizef,
+                  y: state.y -. dirY *. halfPlayerSizef,
+                  vx:
+                    -. (dirX +. Utils.randomf(~min=-0.3, ~max=0.3))
+                    *. bulletSpeed,
+                  vy:
+                    -. (dirY +. Utils.randomf(~min=-0.3, ~max=0.3))
+                    *. bulletSpeed,
+                },
+                ...state.bullets,
+              ];
+            } else {
+              [
+                {
+                  timeRemaining: currentWeapon.bulletLifeSpan,
+                  x: state.x -. dirX *. halfPlayerSizef,
+                  y: state.y -. dirY *. halfPlayerSizef,
+                  vx: -. dirX *. bulletSpeed,
+                  vy: -. dirY *. bulletSpeed,
+                },
+                ...state.bullets,
+              ];
             };
-          } else {
-            {...state, aim: Nothing};
+          {
+            ...state,
+            aim: Nothing,
+            currentMoveTime,
+            totalMoveTime,
+            velocity,
+            bullets,
           };
         } else {
-          state;
-        }
-      };
+          {...state, aim: Nothing};
+        };
+      } else {
+        state;
+      }
+    };
 
-    if (state.currentMoveTime >= state.totalMoveTime) {
-      {...state, currentMoveTime: 0., totalMoveTime: 0., velocity: zeroVec};
-    } else {
-      switch (
-        resolveCollision(
-          ~state,
-          ~dt,
-          state.x,
-          state.y,
-          state.velocity.x,
-          state.velocity.y,
-        )
-      ) {
-      | None => {
-          ...state,
-          velocity: zeroVec,
-          currentMoveTime: 0.,
-          totalMoveTime: 0.,
-        }
-      | Some((vx, vy)) => {
-          ...state,
-          x: state.x +. vx *. dt,
-          y: state.y +. vy *. dt,
-          velocity: {
-            x: vx,
-            y: vy,
-          },
-          currentMoveTime: state.currentMoveTime +. dt,
-        }
-      };
+  if (state.currentMoveTime >= state.totalMoveTime) {
+    {...state, currentMoveTime: 0., totalMoveTime: 0., velocity: zeroVec};
+  } else {
+    let cellPos = (
+      int_of_float(floor((state.x +. state.velocity.x *. dt) /. tileSizef)),
+      int_of_float(floor((state.y +. state.velocity.y *. dt) /. tileSizef)),
+    );
+    let cell = getCell(state.grid, cellPos);
+    if (cell.kind == Door && cell.collision) {
+      setCell(state.grid, cellPos, {...cell, collision: false});
+    };
+
+    switch (
+      resolveCollision(
+        ~state,
+        ~dt,
+        state.x,
+        state.y,
+        state.velocity.x,
+        state.velocity.y,
+      )
+    ) {
+    | None => {
+        ...state,
+        velocity: zeroVec,
+        currentMoveTime: 0.,
+        totalMoveTime: 0.,
+      }
+    | Some((vx, vy)) => {
+        ...state,
+        x: state.x +. vx *. dt,
+        y: state.y +. vy *. dt,
+        velocity: {
+          x: vx,
+          y: vy,
+        },
+        currentMoveTime: state.currentMoveTime +. dt,
+      }
     };
   };
 };
@@ -1072,18 +1260,17 @@ let setBackgroundColor = (state, env) =>
 
 let drawBackground = (state, playerXScreenf, playerYScreenf, env) =>
   Array.iteri(
-    (x, column) =>
+    (cellX, column) =>
       Array.iteri(
-        (y, {kind}) => {
+        (cellY, {kind, collision}) => {
           let (x, y) = (
-            float_of_int(x) *. tileSizef,
-            float_of_int(y) *. tileSizef,
+            float_of_int(cellX) *. tileSizef,
+            float_of_int(cellY) *. tileSizef,
           );
-          let paddingForSomeReason = 0.;
-          let left = state.x -. playerXScreenf -. paddingForSomeReason;
-          let right = state.x +. playerXScreenf +. paddingForSomeReason;
-          let top = state.y -. playerYScreenf -. paddingForSomeReason;
-          let bottom = state.y +. playerYScreenf +. paddingForSomeReason;
+          let left = state.x -. playerXScreenf;
+          let right = state.x +. playerXScreenf;
+          let top = state.y -. playerYScreenf;
+          let bottom = state.y +. playerYScreenf;
           if (x
               +. tileSizef > left
               && x < right
@@ -1091,11 +1278,43 @@ let drawBackground = (state, playerXScreenf, playerYScreenf, env) =>
               +. tileSizef > top
               && y < bottom) {
             switch (kind) {
+            | Door =>
+              if (collision) {
+                Draw.fill(Utils.color(~r=205, ~g=133, ~b=63, ~a=255), env);
+              } else {
+                Draw.fill(Utils.color(~r=255, ~g=183, ~b=113, ~a=255), env);
+              };
+              Draw.noStroke(env);
+              let leftCell = state.grid[cellX - 1][cellY];
+              let topCell = state.grid[cellX][cellY - 1];
+              if (leftCell.kind == Wall || leftCell.kind == Door) {
+                Draw.rectf(
+                  ~pos=(x, y +. tileSizef /. 2. -. 5.),
+                  ~width=tileSizef,
+                  ~height=10.,
+                  env,
+                );
+              } else if (topCell.kind == Wall || topCell.kind == Door) {
+                Draw.rectf(
+                  ~pos=(x +. tileSizef /. 2. -. 5., y),
+                  ~width=10.,
+                  ~height=tileSizef,
+                  env,
+                );
+              } else {
+                Draw.rectf(
+                  ~pos=(x, y),
+                  ~width=tileSizef,
+                  ~height=tileSizef,
+                  env,
+                );
+              };
             | Floor =>
-              ();
               Draw.fill(Constants.white, env);
-              Draw.stroke(Constants.black, env);
-              Draw.strokeWeight(1, env);
+              Draw.noStroke(env);
+
+              /*Draw.stroke(Constants.black, env);
+                Draw.strokeWeight(1, env);*/
               Draw.rectf(
                 ~pos=(x, y),
                 ~width=tileSizef,
@@ -1104,8 +1323,9 @@ let drawBackground = (state, playerXScreenf, playerYScreenf, env) =>
               );
             | Wall =>
               Draw.fill(Utils.color(~r=124, ~g=124, ~b=124, ~a=255), env);
-              Draw.stroke(Constants.black, env);
-              Draw.strokeWeight(1, env);
+              Draw.noStroke(env);
+              /*Draw.stroke(Constants.black, env);
+                Draw.strokeWeight(1, env);*/
               Draw.rectf(
                 ~pos=(x, y),
                 ~width=tileSizef,
@@ -1120,23 +1340,31 @@ let drawBackground = (state, playerXScreenf, playerYScreenf, env) =>
     state.grid,
   );
 
-let drawDeathMessage = (tileSize, env) => {
-  Draw.text(
-    ~body="REVIVED!",
-    ~pos=(5 * tileSize - Draw.textWidth(~body="REVIVED!", env) / 2, (-200)),
+let drawDeathMessage = (state, env) => {
+  let ((x, y), _) = Levels.levels[state.currentLevel];
+  let (x, y) = cellToWorld((x, y));
+  let body = "revived";
+  let textWidth = Draw.textWidth(~body, env);
+  Draw.pushStyle(env);
+  Draw.noStroke(env);
+  Draw.fill(Utils.color(~r=255, ~g=80, ~b=80, ~a=150), env);
+  Draw.rect(
+    ~pos=(int_of_float(x) - textWidth / 2 - 8, (-172)),
+    ~width=textWidth + 16,
+    ~height=80,
     env,
   );
-  Draw.text(
-    ~body="go fight",
-    ~pos=(
-      5 * tileSize - Draw.textWidth(~body="go fight", env) / 2 - 2,
-      (-150),
-    ),
-    env,
-  );
+  Draw.tint(Utils.color(~r=255, ~g=255, ~b=255, ~a=255), env);
+  Draw.text(~body, ~pos=(int_of_float(x) - textWidth / 2, (-164)), env);
+  let body = "go fight";
+  let textWidth = Draw.textWidth(~body, env);
+  Draw.text(~body, ~pos=(int_of_float(x) - textWidth / 2, (-134)), env);
+  Draw.popStyle(env);
 };
 
-let drawSplashes = (state, env) =>
+let drawSplashes = (state, env) => {
+  Draw.pushStyle(env);
+  Draw.tint(Utils.color(255, 255, 255, 150), env);
   List.iter(
     ({x, y, width, height, rotation}) =>
       drawWithRotation(
@@ -1149,11 +1377,21 @@ let drawSplashes = (state, env) =>
       ),
     state.splashes,
   );
+  Draw.popStyle(env);
+};
 
-let drawBullets = (bullets, dt, env) =>
+let drawBullets =
+    (
+      bullets,
+      dt,
+      ~color=Utils.color(~r=255, ~g=255, ~b=255, ~a=255),
+      ~bulletWidth as radx=12.,
+      env,
+    ) => {
   /* Draw the bullets.
      Uses some super hacky angle calculation do draw bullets as ellipses pointing in the right
      direction. */
+  Draw.fill(color, env);
   List.iter(
     ({x, y, vx, vy}: bulletT) => {
       Draw.pushMatrix(env);
@@ -1165,11 +1403,56 @@ let drawBullets = (bullets, dt, env) =>
         env,
       );
       Draw.stroke(Constants.black, env);
-      Draw.ellipsef(~center=(0., 0.), ~radx=12., ~rady=2., env);
+      Draw.strokeWeight(1, env);
+      Draw.ellipsef(~center=(0., 0.), ~radx, ~rady=2., env);
       Draw.popMatrix(env);
     },
     bullets,
   );
+};
+
+let drawScore = (state, env) => {
+  let body = sp("%d", state.score);
+  let textWidth = Draw.textWidth(~body, env);
+  let (x, y) = (Env.width(env) - textWidth - 24, 42);
+  Draw.pushStyle(env);
+  Draw.strokeCap(Round, env);
+  Draw.strokeWeight(8, env);
+  Draw.stroke(Utils.color(~r=255, ~g=255, ~b=255, ~a=255), env);
+  Draw.fill(Utils.color(~r=255, ~g=255, ~b=255, ~a=255), env);
+  Draw.rect(~pos=(x - 8, y - 8), ~width=textWidth + 16, ~height=48, env);
+  Draw.tint(Utils.color(~r=0, ~g=0, ~b=0, ~a=150), env);
+  Draw.text(~pos=(x, y), ~body, env);
+  Draw.popStyle(env);
+};
+
+let drawBestScore = (state, env) => {
+  let body = sp("Best score: %d", state.maxScore);
+  let ((x, y), _) = Levels.levels[state.currentLevel];
+  let (x, y) = cellToWorld((x, y));
+  Draw.pushStyle(env);
+  Draw.tint(Utils.color(~r=0, ~g=0, ~b=0, ~a=150), env);
+  Draw.text(
+    ~pos=(int_of_float(x) - Draw.textWidth(~body, env) / 2, (-48)),
+    ~body,
+    env,
+  );
+  Draw.popStyle(env);
+};
+
+let drawLevelName = (state, env) => {
+  let ((x, y), _) = Levels.levels[state.currentLevel];
+  let (x, y) = cellToWorld((x, y));
+  let body = sp("Level %d", state.currentLevel + 1);
+  Draw.pushStyle(env);
+  Draw.tint(Utils.color(~r=0, ~g=0, ~b=0, ~a=150), env);
+  Draw.text(
+    ~body,
+    ~pos=(int_of_float(x) - Draw.textWidth(~body, env) / 2, (-88)),
+    env,
+  );
+  Draw.popStyle(env);
+};
 
 let drawEnemies = (state, dt, realdt, pathfinderInstance, env) => {
   let (playerCellX, playerCellY) = (
@@ -1179,42 +1462,50 @@ let drawEnemies = (state, dt, realdt, pathfinderInstance, env) => {
 
   /*let visibleEnemies = getVisibleEnemies(state, env);*/
   List.iter(
-    ({pos: {x, y}, direction, speed, bullets}) => {
-      Draw.tint(Utils.color(~r=255, ~g=255, ~b=255, ~a=50), env);
-      drawWithRotation(
-        AssetMap.find("robot1", state.assetMap),
-        ~pos=(
-          x -. direction.x *. (realdt -. dt) *. 12.,
-          y -. direction.y *. (realdt -. dt) *. 12.,
-        ),
-        ~width=224. /. 7.,
-        ~height=344. /. 7.,
-        ~rot=0.,
-        env,
-      );
-      Draw.tint(Utils.color(~r=255, ~g=255, ~b=255, ~a=100), env);
-      drawWithRotation(
-        AssetMap.find("robot1", state.assetMap),
-        ~pos=(
-          x -. direction.x *. (realdt -. dt) *. 8.,
-          y -. direction.y *. (realdt -. dt) *. 8.,
-        ),
-        ~width=224. /. 7.,
-        ~height=344. /. 7.,
-        ~rot=0.,
-        env,
-      );
-      Draw.noTint(env);
-      drawWithRotation(
-        AssetMap.find("robot1", state.assetMap),
-        ~pos=(x, y),
-        ~width=224. /. 7.,
-        ~height=344. /. 7.,
-        ~rot=0.,
-        env,
-      );
+    ({pos: {x, y}, isDead, direction, speed, bullets}) => {
+      if (!isDead) {
+        Draw.tint(Utils.color(~r=255, ~g=255, ~b=255, ~a=50), env);
+        drawWithRotation(
+          AssetMap.find("robot1", state.assetMap),
+          ~pos=(
+            x -. direction.x *. (realdt -. dt) *. 12.,
+            y -. direction.y *. (realdt -. dt) *. 12.,
+          ),
+          ~width=224. /. 7.,
+          ~height=344. /. 7.,
+          ~rot=0.,
+          env,
+        );
+        Draw.tint(Utils.color(~r=255, ~g=255, ~b=255, ~a=100), env);
+        drawWithRotation(
+          AssetMap.find("robot1", state.assetMap),
+          ~pos=(
+            x -. direction.x *. (realdt -. dt) *. 8.,
+            y -. direction.y *. (realdt -. dt) *. 8.,
+          ),
+          ~width=224. /. 7.,
+          ~height=344. /. 7.,
+          ~rot=0.,
+          env,
+        );
+        Draw.noTint(env);
+        drawWithRotation(
+          AssetMap.find("robot1", state.assetMap),
+          ~pos=(x, y),
+          ~width=224. /. 7.,
+          ~height=344. /. 7.,
+          ~rot=0.,
+          env,
+        );
+      };
 
-      drawBullets(bullets, dt, env);
+      drawBullets(
+        bullets,
+        dt,
+        ~color=Utils.color(~r=255, ~g=20, ~b=50, ~a=255),
+        ~bulletWidth=8.,
+        env,
+      );
 
       if (state.experiment == _DEBUG) {
         let (cellX, cellY) = (
@@ -1223,7 +1514,7 @@ let drawEnemies = (state, dt, realdt, pathfinderInstance, env) => {
         );
         if (cellX >= 0 && cellX < gridWidth && cellY >= 0 && cellY < gridHeight) {
           let cell = state.grid[cellX][cellY];
-          if (!cell.collision) {
+          if (!cell.collision && !isDead) {
             let path =
               Pathfinder.pathfind(
                 pathfinderInstance,
@@ -1334,7 +1625,8 @@ let drawAimLine = (state, mx, my, playerXScreenf, playerYScreenf, env) =>
     let currentWeapon = state.weapons[state.currentWeaponIndex];
 
     let (dx, dy) =
-      if (currentWeapon.kind == ShootsBehindYou) {
+      if (currentWeapon.kind == ShootsBehindYou
+          || state.experiment == _INVERTED_SHOOTING) {
         (mx -. sx, my -. sy);
       } else {
         (sx -. mx, sy -. my);
@@ -1355,7 +1647,8 @@ let drawAimLine = (state, mx, my, playerXScreenf, playerYScreenf, env) =>
         env,
       );
 
-      if (currentWeapon.kind == ShootsBehindYou) {
+      if (currentWeapon.kind == ShootsBehindYou
+          || state.experiment == _INVERTED_SHOOTING) {
         let (dx, dy) = (sx -. mx, sy -. my);
         let mag = sqrt(dx *. dx +. dy *. dy);
 
@@ -1420,13 +1713,32 @@ let drawAimLine = (state, mx, my, playerXScreenf, playerYScreenf, env) =>
 
 let drawHealthBar = (state, env) => {
   Draw.noStroke(env);
-  Draw.fill(Utils.color(~r=124, ~g=10, ~b=2, ~a=255), env);
-  Draw.rectf(~pos=(22., 42.), ~width=104., ~height=28., env);
-  Draw.fill(Utils.color(~r=30, ~g=100, ~b=30, ~a=255), env);
+
+  Draw.fill(Utils.color(~r=124, ~g=10, ~b=2, ~a=200), env);
+  let padding = 4.;
+  let height = 24.;
+  let width = 100. +. padding *. 2.;
+  let x = 24.;
+  let y = 42.;
   Draw.rectf(
-    ~pos=(24., 44.),
-    ~width=float_of_int(state.health),
-    ~height=24.,
+    ~pos=(x, y),
+    ~width=width *. globalScale,
+    ~height=height *. globalScale,
+    env,
+  );
+
+  Draw.fill(Utils.color(~r=255, ~g=255, ~b=255, ~a=255), env);
+  Draw.rectf(
+    ~pos=(x +. padding *. globalScale, y +. padding *. globalScale),
+    ~width=(width -. 2. *. padding) *. globalScale,
+    ~height=(height -. 2. *. padding) *. globalScale,
+    env,
+  );
+  Draw.fill(Utils.color(~r=30, ~g=100, ~b=30, ~a=200), env);
+  Draw.rectf(
+    ~pos=(x +. padding *. globalScale, y +. padding *. globalScale),
+    ~width=(width -. 2. *. padding) *. globalScale,
+    ~height=(height -. 2. *. padding) *. globalScale,
     env,
   );
 };
@@ -1444,12 +1756,16 @@ let setup = (size, assetDir, env) => {
   };
   Random.init(0);
 
-  let (grid, enemies) = parseMap(gridMap);
-
+  let currentLevel = 7;
+  let (startPos, map) = Levels.levels[currentLevel];
+  let (grid, enemies) = Levels.parseMap(map);
+  let (startPosX, startPosY) = startPos;
   {
-    x: 16. *. tileSizef +. tileSizef /. 2.,
-    y: 3. *. tileSizef +. tileSizef /. 2.,
+    x: float_of_int(startPosX) *. tileSizef +. tileSizef /. 2.,
+    y: float_of_int(startPosY) *. tileSizef +. tileSizef /. 2.,
     time: 0.,
+    score: 0,
+    maxScore: 0,
     aim: Nothing,
     health: 100,
     enemies,
@@ -1463,23 +1779,26 @@ let setup = (size, assetDir, env) => {
     prevMouseState: false,
     sounds: {
       enemyDeathSound: Env.loadSound(assetDir +/ "enemyDeathSound.wav", env),
+      playerShotSound: Env.loadSound(assetDir +/ "playerShotSound.wav", env),
     },
     currentWeaponIndex: 0,
     deathTime: 0.,
     weapons: [|
       {
         length: 5,
-        moveTime: 0.5,
+        moveTime: 0.2,
         playerTravelDistance: 40.,
-        bulletSpeed: 600.,
+        bulletSpeed: 1200.,
         kind: Pistol,
+        bulletLifeSpan: 0.5,
       },
       {
         length: 10,
         moveTime: 0.3,
         playerTravelDistance: 80.,
-        bulletSpeed: 400.,
+        bulletSpeed: 1200.,
         kind: Shotgun,
+        bulletLifeSpan: 0.2,
       },
       {
         length: 5,
@@ -1487,6 +1806,7 @@ let setup = (size, assetDir, env) => {
         playerTravelDistance: 40.,
         bulletSpeed: 200.,
         kind: ShootsBehindYou,
+        bulletLifeSpan: 1.,
       },
     |],
     grid,
@@ -1496,12 +1816,15 @@ let setup = (size, assetDir, env) => {
     },
     currentMoveTime: 0.,
     totalMoveTime: 0.,
+    currentLevel,
+    touches: [],
+    didTap: false
   };
 };
 
 let draw = (state, env) => {
   let realdt = Env.deltaTime(env);
-  let dt = slowDownTime(state, realdt);
+  let dt = slowDownTime(~state, ~realdt, env);
 
   let (windowW, windowH) = (Env.width(env), Env.height(env));
   let (windowWf, windowHf) = (
@@ -1509,10 +1832,11 @@ let draw = (state, env) => {
     float_of_int(windowH),
   );
 
-  let (playerXScreen, playerYScreen) = (windowW / 2, windowH / 2);
-  let (playerXScreenf, playerYScreenf) = (
-    float_of_int(playerXScreen),
-    float_of_int(playerYScreen),
+  let paddingForScale = globalScale < 1. ? 20. : 0.;
+  let (playerXScreenf, playerYScreenf) = (windowWf /. 2., windowHf /. 2.);
+  let (playerXScreenScaledf, playerYScreenScaledf) = (
+    playerXScreenf *. (2. -. globalScale) +. paddingForScale,
+    playerYScreenf *. (2. -. globalScale) +. paddingForScale,
   );
 
   /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
@@ -1529,31 +1853,47 @@ let draw = (state, env) => {
   let (mx, my, _mx2, _my2, numOfTouches) = getTouchPositions(env);
 
   /* Bullet collision detection and response */
-  let state = moveBullets(state, dt, env);
+  let state = moveBullets(state, dt, ~removeIfTooFar=true, env);
 
-  let pathfinderInstance = Pathfinder.make(state.grid);
-  let state = runEnemyBehavior(state, dt, pathfinderInstance, env);
-
-  /* Maybe one day we'll actually support multi-touch. */
   let state =
-    if (numOfTouches > 1) {
-      state;
+    if ((state.currentLevel == 6 || state.currentLevel == 7)
+        && Utils.randomf(~min=0., ~max=100.) < 200.
+        *. dt) {
+      spawnNewEnemies(state, ~outsideOfFieldOfView=true, env);
     } else {
       state;
     };
 
+  let pathfinderInstance = Pathfinder.make(state.grid);
+  let state = moveEnemiesAndAttack(state, dt, pathfinderInstance, env);
+
   let (state, didTapOnSwapButton) =
-    handleTapOnWeaponSwapButton(
-      state,
-      mx,
-      my,
-      playerXScreen,
-      playerYScreen,
-      env,
-    );
+    checkSwapWeaponButton(state, mx, my, playerXScreenf, playerYScreenf, env);
+
+  let (devButtonX, devButtonY) = (60., 60.);
 
   let state =
-    handlePlayerShootingBehavior(state, dt, didTapOnSwapButton, mx, my, env);
+    if (state.didTap
+        && mx < devButtonX
+        && my < devButtonY) {
+      {
+        ...state,
+        experiment: (state.experiment + 1) mod (_NUMBER_OF_EXPERIMENTS + 1),
+      };
+    } else if (state.didTap
+               && mx > float_of_int(Env.width(env))
+               -. devButtonX
+               && my < devButtonY) {
+      {
+        ...state,
+        health: (-1), /* Massive @Hack to move forward in levels */
+        currentLevel: (state.currentLevel + 1) mod Levels.numberOfLevels,
+      };
+    } else {
+      movePlayerAndAttack(state, dt, didTapOnSwapButton, mx, my, env);
+    };
+
+  let state = {...state, maxScore: max(state.maxScore, state.score)};
 
   /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
    *                                           DRAWING                                           *
@@ -1568,30 +1908,76 @@ let draw = (state, env) => {
   setBackgroundColor(state, env);
 
   Draw.pushMatrix(env);
-  Draw.translate(
-    ~x=playerXScreenf -. state.x,
-    ~y=playerYScreenf -. state.y,
-    env,
-  );
 
-  drawBackground(state, playerXScreenf, playerYScreenf, env);
+  Draw.translate(~x=playerXScreenf, ~y=playerYScreenf, env);
+  Draw.scale(~x=globalScale, ~y=globalScale, env);
+  Draw.translate(~x=-. state.x, ~y=-. state.y, env);
+
+  drawBackground(state, playerXScreenScaledf, playerYScreenScaledf, env);
+
+  if (state.experiment == _DEBUG) {
+  Pathfinder.TupleSet.iter(
+      ((x, y)) => {
+        /*let cur = pathfinderInstance.map->Belt.Map.getExn((x, y));*/
+        let (x, y) = (
+          float_of_int(x) *. tileSizef,
+          float_of_int(y) *. tileSizef,
+        );
+        Draw.fill(Utils.color(~r=205, ~g=0, ~b=63, ~a=150), env);
+        Draw.noStroke(env);
+        Draw.rectf(
+          ~pos=(x, y +. tileSizef /. 2. -. 5.),
+          ~width=tileSizef,
+          ~height=tileSizef,
+          env,
+        );
+      },
+      pathfinderInstance.openSet,
+    );
+
+    Pathfinder.TupleSet.iter(
+      ((x, y)) => {
+        /*let cur = pathfinderInstance.map->Belt.Map.getExn((x, y));*/
+        let (x, y) = (
+          float_of_int(x) *. tileSizef,
+          float_of_int(y) *. tileSizef,
+        );
+        Draw.fill(Utils.color(~r=0, ~g=0, ~b=255, ~a=150), env);
+        Draw.noStroke(env);
+        Draw.rectf(
+          ~pos=(x, y +. tileSizef /. 2. -. 5.),
+          ~width=tileSizef,
+          ~height=tileSizef,
+          env,
+        );
+      },
+      pathfinderInstance.closedSet,
+    );
+  };
 
   drawSplashes(state, env);
 
-  if (state.deathTime > 0.) {
-    drawDeathMessage(tileSize, env);
-  };
-
   drawEnemies(state, dt, realdt, pathfinderInstance, env);
 
-  drawBullets(state.bullets, dt, env);
+  drawBullets(
+    state.bullets,
+    dt,
+    ~color=Utils.color(~r=100, ~g=100, ~b=255, ~a=255),
+    env,
+  );
+
+  drawLevelName(state, env);
+
+  drawBestScore(state, env);
+
+  if (state.deathTime > 0.) {
+    drawDeathMessage(state, env);
+  };
 
   Draw.popMatrix(env);
 
   /* Draw the aim line */
   drawAimLine(state, mx, my, playerXScreenf, playerYScreenf, env);
-
-  drawHealthBar(state, env);
 
   /* Draw the player */
   drawWithRotation(
@@ -1600,33 +1986,103 @@ let draw = (state, env) => {
     ~width=220. /. 6.,
     ~height=311. /. 6.,
     ~rot=0.,
+    ~scale=globalScale,
     env,
   );
 
+  drawScore(state, env);
+
   if (state.health <= 0) {
-    let (grid, enemies) = parseMap(gridMap);
+    let (startPos, map) = Levels.levels[state.currentLevel];
+    let (grid, enemies) = Levels.parseMap(map);
+    let (startPosX, startPosY) = startPos;
 
     {
       ...state,
+      score: 0,
       deathTime: 3.,
-      x: 16. *. tileSizef +. tileSizef /. 2.,
-      y: 3. *. tileSizef +. tileSizef /. 2.,
+      x: float_of_int(startPosX) *. tileSizef +. tileSizef /. 2.,
+      y: float_of_int(startPosY) *. tileSizef +. tileSizef /. 2.,
       time: 0.,
       aim: Nothing,
       health: 100,
       enemies,
-      assetMap: loadAssetMap(env, possibleFruits),
       bullets: [],
       splashes: [],
-      experiment: 0,
       prevMouseState: false,
       currentWeaponIndex: 0,
       grid,
+      touches: [],
+      didTap: false,
     };
   } else {
-    {...state, prevMouseState: Env.mousePressed(env)};
+    {...state, prevMouseState: Env.mousePressed(env), didTap: false};
   };
 };
 
-let run = (size, assetDir) =>
-  Reprocessing.run(~setup=setup(size, assetDir), ~draw, ());
+
+
+let touchesMoved = (state, env) =>
+  switch (state.aim) {
+  | Aiming({x: sx, y: sy, points} as aiming) =>
+    let (mx, my, _mx2, _my2, numOfTouches) = getTouchPositions(env);
+    let (dx, dy) = (sx -. mx, sy -. my);
+    let aimCap = 50.;
+    let mag = sqrt(dx *. dx +. dy *. dy);
+    let (sx, sy) =
+      if (mag > aimCap) {
+        (mx +. dx /. mag *. 50., my +. dy /. mag *. 50.);
+      } else {
+        (sx, sy);
+      };
+    {
+      ...state,
+      aim: Aiming({...aiming, x: sx, y: sy, points: [(mx, my), ...points]}),
+    };
+  | _ => state
+  };
+
+let touchesBegan = (state, env) => {
+  let touches = List.map((touch) => {
+    (touch, state.time)
+  }, Env.changedTouches(env));
+  let touches = switch (touches) {
+  | [] => 
+  let (x, y) = Env.mouse(env);
+  [({Events.hash: 1., x: float_of_int(x), y: float_of_int(y)}, state.time)]
+  | touches => touches
+  };
+  {...state, touches: state.touches @ touches}
+};
+
+let touchesEnded = (state, env) => {
+  let touches = switch (Env.changedTouches(env)) {
+  | [] => 
+  let (x, y) = Env.mouse(env);
+  [{Events.hash: 1., x: float_of_int(x), y: float_of_int(y)}]
+  | touches => touches
+  };
+  let (didTap, touches) = List.fold_left(((didTap, newTouches), (touch, prevTime)) => {
+     if (didTap) {
+      (didTap, [(touch, prevTime), ...newTouches])
+     } else{
+       if(List.mem(touch, touches)) { 
+        (state.time -. prevTime < 0.2, newTouches)
+       } else{
+        (didTap, [(touch, prevTime), ...newTouches])
+       }
+     }
+  }, (false, []), state.touches);
+  {...state, didTap, touches}
+};
+
+/* @Hack UUUGH we have to do this runtime check because otherwise the mouse handler and the touch handles will BOTH fire on iOS. */
+let run = if (Reprocessing.target == "native-ios") {
+  (size, assetDir) =>
+    Reprocessing.run(~setup=setup(size, assetDir), ~draw, ~touchesBegan, ~touchesMoved, ~touchesEnded, ());
+  
+} else {
+  (size, assetDir) =>
+    Reprocessing.run(~setup=setup(size, assetDir), ~draw, ~mouseDown=touchesBegan, ~mouseUp=touchesEnded, ~touchesBegan, ~touchesMoved, ~touchesEnded, ());
+}
+
