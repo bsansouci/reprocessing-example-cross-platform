@@ -19,8 +19,6 @@ Walker
 - Maybe holding to move... Is an instinct
 
 Nathan
-- While you're aiming you should move time slightly faster
-- "revived, go fight" looks like a button that needs to be tapped
 - power ups
     + one that pauses time
     + an armor that protects you

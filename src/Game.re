@@ -231,7 +231,7 @@ let cellToWorld = ((x, y)) => (
 let slowDownTime = (~state, ~realdt, env) => 
   /*if (state.currentMoveTime < state.totalMoveTime) {*/
   if (state.currentMoveTime < 0.01) {
-    if (state.didTap) {
+    if (Env.mousePressed(env)) {
       realdt /. slowMoveDivisor *. 2.
     } else {
     realdt
@@ -1347,7 +1347,10 @@ let drawDeathMessage = (state, env) => {
   let textWidth = Draw.textWidth(~body, env);
   Draw.pushStyle(env);
   Draw.noStroke(env);
-  Draw.fill(Utils.color(~r=255, ~g=80, ~b=80, ~a=150), env);
+  Draw.strokeCap(Round, env);
+  Draw.strokeWeight(8, env);
+  Draw.stroke(Utils.color(~r=255, ~g=255, ~b=255, ~a=255), env);
+  Draw.fill(Utils.color(~r=255, ~g=255, ~b=255, ~a=255), env);
   Draw.rect(
     ~pos=(int_of_float(x) - textWidth / 2 - 8, (-172)),
     ~width=textWidth + 16,
@@ -1970,9 +1973,9 @@ let draw = (state, env) => {
 
   drawBestScore(state, env);
 
-  if (state.deathTime > 0.) {
+  /*if (state.deathTime > 0.) {*/
     drawDeathMessage(state, env);
-  };
+  /*};*/
 
   Draw.popMatrix(env);
 
