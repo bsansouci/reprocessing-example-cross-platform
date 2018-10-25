@@ -855,6 +855,12 @@ let moveEnemiesAndAttack = (state, dt, pathfinderInstance, env) => {
   {...state, enemies, health};
 };
 
+
+/* @Bug I've seen enemies spawn in my field of view when I'm close to walls.
+             
+            Ben — October 24th 2018
+
+ */
 let spawnNewEnemies = (state, ~outsideOfFieldOfView=false, env) => {
   let (cellX, cellY) = (
     int_of_float(floor(state.x /. tileSizef)),

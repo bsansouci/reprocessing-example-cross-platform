@@ -1,11 +1,18 @@
+October 24th
+- power-ups
+    + an extra life (like a shield)
+    + a gun that continuously shoot and moves you forward
+- gun levels
+    + idk...
+
 October 23rd
 - problem 1: Shotgun is OP
-    - Try adding health so shotgun kills in one shot
+    - Try adding health so shotgun bullets don't kill in one shot
     - Add power-ups
     - Make enemies smarter by making them move away from the shotgun range
 - What if you had "puzzles" to solve during the play
 - Spawn monsters close to you so you don't go look for them
-- Enemies should be initialized at half max time so that they don't immediately shoot
+- In room with closed doors, enemies should be initialized at half max time so that they don't immediately shoot
 - Combos (2x, 3x...)
 - New weapon that gets one more bullet each time you hit (gets better at each hit)
 - If you're too close to the shooters, they should run away from you
@@ -32,9 +39,7 @@ October 19th
 - I like the rooms + house idea of hotline miami. I kinda wanna copy that. But that means designing rooms, and the game is technically done after 1h of playing it. It might get more replayability with a bit of randomness in some areas. Actually the fact that it's not fully paused will add replayability, since enemies move in places that you wouldn't predict.
 - **IDEA** What if you carrier a melee weapon on you as well as a gun, so when enemies are close, you melee them. This means that runners are more like shields, they prevent you from touching a target that's further and they auto-trigger the melee attack preventing from even shooting.
 - **IDEA** Give enemy max shooting distance, so they don't shoot outside of the view (for most cases)
-- Don't remove enemies bullets when they die
-- Spawning in one big room
-- Add furniture 
+- Add furniture
 
 
 Older stuff
@@ -54,8 +59,6 @@ Older stuff
     + sniper
     + pistol
 - different kinds of enemies
-- implements death
-- [NO] watches you pick up give you "time", which runs out as you play
 - count how many times you shot the guns and level up the guns based on that
     + They level up at the end of each level
 - tilt your phone to rotate the map view (dude alwasy facing up)
