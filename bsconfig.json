@@ -22,7 +22,7 @@
     "backend": "ios",
     "main-module": "Ios"
   }, {
-    "backend": ["native", "js"],
+    "backend": ["native"],
     "main-module": "Dev",
   }],
   "icon": "./icons/icon.png",
