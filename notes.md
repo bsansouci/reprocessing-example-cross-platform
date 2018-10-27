@@ -15,13 +15,13 @@ October 25th
     + Cut-off behavior, something that'd get on the other side
 - Add grenade launcher guy
 - Fix pacing
-    + Spawn monsters close to you so you don't go look for them
-    + Spawn monsters in a wave pattern that is ever-increasing (let's see how far we can get with a simple sine that has a peak that grows)
+    + [DONE] Spawn monsters close to you so you don't go look for them
+    + [DONE] Spawn monsters in a wave pattern that is ever-increasing (let's see how far we can get with a simple sine that has a peak that grows)
     + Fix pacing more
 - Fix map
     + Add furniture
     + Fix wall layout. You should spawn in the middle and each quadrant could be a style of gameplay (depending on which wave you're at)
-
+- Make shield more of a line thing
 
 
 

@@ -81,6 +81,7 @@ let rec pathfindHelper = (pathfinderState, goal) => {
   if (current == goal) {
     reconstructPath(pathfinderState, current);
   } else {
+    /* @Mutation */
     pathfinderState.openSet =
       TupleSet.remove(current, pathfinderState.openSet);
     pathfinderState.closedSet =
@@ -101,6 +102,8 @@ let rec pathfindHelper = (pathfinderState, goal) => {
             switch (TupleMap.find(current, pathfinderState.map)) {
             | exception _ =>
               let node = {gScore: almostMaxFloat, cameFrom: None};
+
+              /* @Mutation */
               pathfinderState.map =
                 TupleMap.add(current, node, pathfinderState.map);
               node;
@@ -110,6 +113,7 @@ let rec pathfindHelper = (pathfinderState, goal) => {
           let tentativeGScore = currentNode.gScore +. distToNeighbor;
 
           if (!TupleSet.mem(neighbor, pathfinderState.openSet)) {
+            /* @Mutation */
             pathfinderState.openSet =
               TupleSet.add(neighbor, pathfinderState.openSet);
           };
@@ -118,6 +122,8 @@ let rec pathfindHelper = (pathfinderState, goal) => {
             switch (TupleMap.find(neighbor, pathfinderState.map)) {
             | exception _ =>
               let node = {gScore: almostMaxFloat, cameFrom: None};
+
+              /* @Mutation */
               pathfinderState.map =
                 TupleMap.add(neighbor, node, pathfinderState.map);
               node;
@@ -126,6 +132,7 @@ let rec pathfindHelper = (pathfinderState, goal) => {
           if (tentativeGScore >= neighborNode.gScore) {
             loop(i + 1);
           } else {
+            /* @Mutation */
             neighborNode.cameFrom = Some(current);
             neighborNode.gScore = tentativeGScore;
             loop(i + 1);
@@ -148,8 +155,11 @@ let pathfind = (pathfinderState, start, goal) =>
     reconstructPath(pathfinderState, goal);
   } else {
     if (TupleSet.cardinal(pathfinderState.openSet) == 0) {
+      /* @Mutation */
       pathfinderState.openSet = TupleSet.add(start, pathfinderState.openSet);
       let startNode = {cameFrom: None, gScore: 0.};
+
+      /* @Mutation */
       pathfinderState.map =
         TupleMap.add(start, startNode, pathfinderState.map);
     };

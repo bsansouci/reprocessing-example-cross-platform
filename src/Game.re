@@ -62,7 +62,7 @@ let bulletCollidesWithEnemies = ({x, y}: bulletT, enemies) => {
     switch (enemiesRemaining) {
     | [] => None
     | [{id, isDead, pos: {x: sx, y: sy}}, ...restOfPineapples] =>
-      let enemyBoundingCircle = 30. *. globalScale;
+      let enemyBoundingCircle = 30.;
       if (!isDead
           && Utils.distf(~p1=(sx, sy), ~p2=(x, y)) < enemyBoundingCircle) {
         Some(id);
@@ -119,19 +119,25 @@ let getVisibleEnemies = (state, env) => {
 };
 
 let bulletIsOutOfRange = (state, bullet: bulletT, env) =>
-  /*print_endline(sp("asd: %f", bullet.timeRemaining));*/
   bullet.timeRemaining <= 0.;
-                            /*let padding = (-20.);
-                              let wf = float_of_int(Env.width(env));
-                              let hf = float_of_int(Env.height(env));
-                              let screenCoordX = bullet.x -. state.x +. wf /. 2.;
-                              let screenCoordY = bullet.y -. state.y +. hf /. 2.;
-                              screenCoordX > wf
-                              -. padding
-                              || screenCoordX < padding
-                              || screenCoordY > hf
-                              -. padding
-                              || screenCoordY < padding;*/
+
+let isThereAWallBetweenTheEnemyAndThePlayer =
+    (state, x, y, mag, playerDirectionX, playerDirectionY) => {
+  let step = tileSizef /. 2.;
+  let numOfIterations = floor(mag /. step);
+  let rec loop = i =>
+    if (i >= numOfIterations) {
+      false;
+    } else {
+      let ratio = i /. numOfIterations;
+      let (cellX, cellY) = (
+        int_of_float(floor((x +. playerDirectionX *. ratio) /. tileSizef)),
+        int_of_float(floor((y +. playerDirectionY *. ratio) /. tileSizef)),
+      );
+      getCell(state.grid, (cellX, cellY)).collision || loop(i +. 1.0);
+    };
+  loop(0.);
+};
 
 let minFruitDistanceForAimAssist = 100.;
 let aimAssist = (state, dx, dy, mag, env) => {
@@ -141,30 +147,43 @@ let aimAssist = (state, dx, dy, mag, env) => {
         if (isDead) {
           (closestX, closestY, closestDot);
         } else {
-          let (vecToFruitX, vecToFruitY) = (state.x -. x, state.y -. y);
-          let distFromPlayerToFruit =
-            sqrt(vecToFruitX *. vecToFruitX +. vecToFruitY *. vecToFruitY);
-          let cosangle =
-            vecToFruitX
-            /. distFromPlayerToFruit
-            *. dx
-            /. mag
-            +. vecToFruitY
-            /. distFromPlayerToFruit
-            *. dy
-            /. mag;
-          if (cosangle > closestDot) {
-            (vecToFruitX, vecToFruitY, cosangle);
-          } else {
+          let (vecToEnemyX, vecToEnemyY) = (state.x -. x, state.y -. y);
+          let distFromPlayerToEnemy =
+            sqrt(vecToEnemyX *. vecToEnemyX +. vecToEnemyY *. vecToEnemyY);
+          let isTheEnemyUnreachable =
+            isThereAWallBetweenTheEnemyAndThePlayer(
+              state,
+              x,
+              y,
+              distFromPlayerToEnemy,
+              vecToEnemyX,
+              vecToEnemyY,
+            );
+          if (isTheEnemyUnreachable) {
             (closestX, closestY, closestDot);
+          } else {
+            let cosangle =
+              vecToEnemyX
+              /. distFromPlayerToEnemy
+              *. dx
+              /. mag
+              +. vecToEnemyY
+              /. distFromPlayerToEnemy
+              *. dy
+              /. mag;
+            if (cosangle > closestDot) {
+              (vecToEnemyX, vecToEnemyY, cosangle);
+            } else {
+              (closestX, closestY, closestDot);
+            };
           };
         },
       (dx, dy, 0.98),
       getVisibleEnemies(state, env),
     );
 
-  let distFromPlayerToFruit = sqrt(newdx *. newdx +. newdy *. newdy);
-  if (distFromPlayerToFruit > minFruitDistanceForAimAssist) {
+  let distFromPlayerToEnemy = sqrt(newdx *. newdx +. newdy *. newdy);
+  if (distFromPlayerToEnemy > minFruitDistanceForAimAssist) {
     (newdx, newdy, cosangle);
   } else {
     (dx, dy, 0.98);
@@ -500,31 +519,9 @@ let moveEnemiesAndAttack = (state, dt, pathfinderInstance, env) => {
               *. playerDirectionY,
             );
 
-          let isThereAWallBetweenTheEnemyAndThePlayer =
-              (mag, playerDirectionX, playerDirectionY) => {
-            let step = tileSizef /. 2.;
-            let numOfIterations = floor(mag /. step);
-            let rec loop = i =>
-              if (i >= numOfIterations) {
-                false;
-              } else {
-                let ratio = i /. numOfIterations;
-                let (cellX, cellY) = (
-                  int_of_float(
-                    floor((x +. playerDirectionX *. ratio) /. tileSizef),
-                  ),
-                  int_of_float(
-                    floor((y +. playerDirectionY *. ratio) /. tileSizef),
-                  ),
-                );
-                getCell(state.grid, (cellX, cellY)).collision
-                || loop(i +. 1.0);
-              };
-            loop(0.);
-          };
           /* Helper for moving towards the player instead of awkwardly pathfinding */
           let moveInPlayerDirection =
-              (mag, playerDirectionX, playerDirectionY) => {
+              (enemy, mag, playerDirectionX, playerDirectionY) => {
             let vx = playerDirectionX /. mag *. speed;
             let vy = playerDirectionY /. mag *. speed;
 
@@ -547,11 +544,10 @@ let moveEnemiesAndAttack = (state, dt, pathfinderInstance, env) => {
               );
 
             {
-              ...defaultEnemyUpdates,
+              ...enemy,
               forcefullyMovedTimer:
                 forcedToMove ?
-                  forcefullyMovedTimerDefaultValue :
-                  defaultEnemyUpdates.forcefullyMovedTimer,
+                  forcefullyMovedTimerDefaultValue : enemy.forcefullyMovedTimer,
               pos: {
                 x: x +. resolvedVx *. dt,
                 y: y +. resolvedVy *. dt,
@@ -596,7 +592,12 @@ let moveEnemiesAndAttack = (state, dt, pathfinderInstance, env) => {
                 }
               | [_]
               | [_, _] =>
-                moveInPlayerDirection(mag, playerDirectionX, playerDirectionY)
+                moveInPlayerDirection(
+                  defaultEnemyUpdates,
+                  mag,
+                  playerDirectionX,
+                  playerDirectionY,
+                )
               | [_, next, nextnext, ...rest] =>
                 let (nx1, ny1) = cellToWorld(next);
                 let (dx1, dy1) = (nx1 -. x, ny1 -. y);
@@ -650,37 +651,69 @@ let moveEnemiesAndAttack = (state, dt, pathfinderInstance, env) => {
             /* @Hack @FixMe had to disable pathfinding on the massive maps because it was too slow... */
             let anyWallsInBetweenEnemyAndPlayer =
               isThereAWallBetweenTheEnemyAndThePlayer(
+                state,
+                x,
+                y,
                 mag,
                 playerDirectionX,
                 playerDirectionY,
               );
 
             if (!anyWallsInBetweenEnemyAndPlayer && mag < enemy.weaponRange) {
-              if (timeUntilNextAttack <= 0.) {
-                {
-                  ...defaultEnemyUpdates,
-                  timeUntilNextAttack: 1.,
-                  direction: {
-                    x: 0.,
-                    y: 0.,
-                  },
-                  bullets: [
-                    {
-                      x,
-                      y,
-                      vx: playerDirectionX /. mag *. enemy.bulletSpeed,
-                      vy: playerDirectionY /. mag *. enemy.bulletSpeed,
-                      timeRemaining: defaultEnemyUpdates.bulletLifeSpan,
-                    },
-                    ...enemy.bullets,
-                  ],
-                };
-              } else
-                {
+              let enemy =
+                if (timeUntilNextAttack <= 0.) {
+                  {
+                    ...defaultEnemyUpdates,
+                    timeUntilNextAttack: 1.,
+                    /*direction: {
+                        x: 0.,
+                        y: 0.,
+                      },*/
+                    bullets: [
+                      {
+                        x,
+                        y,
+                        vx: playerDirectionX /. mag *. enemy.bulletSpeed,
+                        vy: playerDirectionY /. mag *. enemy.bulletSpeed,
+                        timeRemaining: defaultEnemyUpdates.bulletLifeSpan,
+                      },
+                      ...enemy.bullets,
+                    ],
+                  };
+                } else {
                   defaultEnemyUpdates;
                 };
-                /*            } else if (!anyWallsInBetweenEnemyAndPlayer) {
-                              moveInPlayerDirection(mag, playerDirectionX, playerDirectionY);*/
+
+              let minDistanceBetweenPlayerAndShooter = 160.;
+              if (mag < minDistanceBetweenPlayerAndShooter) {
+                moveInPlayerDirection(
+                  enemy,
+                  mag,
+                  -. playerDirectionX,
+                  -. playerDirectionY,
+                );
+              } else {
+                let direction = {
+                  x:
+                    enemy.direction.x
+                    +. Utils.noise(x, y, state.time)
+                    *. 2.
+                    -. 1.,
+                  y:
+                    enemy.direction.y
+                    +. Utils.noise(x, y, state.time)
+                    *. 2.
+                    -. 1.,
+                };
+                {
+                  ...enemy,
+                  direction,
+                  pos: {
+                    x: enemy.pos.x +. direction.x *. dt,
+                    y: enemy.pos.y +. direction.y *. dt,
+                  },
+                };
+              };
             } else {
               let path =
                 Pathfinder.pathfind(
@@ -698,7 +731,12 @@ let moveEnemiesAndAttack = (state, dt, pathfinderInstance, env) => {
                 }
               | [_]
               | [_, _] =>
-                moveInPlayerDirection(mag, playerDirectionX, playerDirectionY)
+                moveInPlayerDirection(
+                  defaultEnemyUpdates,
+                  mag,
+                  playerDirectionX,
+                  playerDirectionY,
+                )
               | [_, next, nextnext, ...rest] =>
                 let (nx1, ny1) = cellToWorld(next);
                 let (dx1, dy1) = (nx1 -. x, ny1 -. y);
@@ -791,9 +829,6 @@ let moveEnemiesAndAttack = (state, dt, pathfinderInstance, env) => {
                   ((currentPowerups, usedAPowerup), p: powerupT) =>
                     switch (p.kind, usedAPowerup) {
                     | (Armor, false) => (currentPowerups, true)
-                    | (ArmorShootsInCircle, false) => (currentPowerups, true)
-                    | (ArmorLaser, false) => (currentPowerups, true)
-                    | (ArmorFreeze, false) => (currentPowerups, true)
                     | _ => ([p, ...currentPowerups], usedAPowerup)
                     },
                   ([], false),
@@ -842,12 +877,6 @@ let moveEnemiesAndAttack = (state, dt, pathfinderInstance, env) => {
                       ((currentPowerups, usedAPowerup), p: powerupT) =>
                         switch (p.kind, usedAPowerup) {
                         | (Armor, false) => (currentPowerups, true)
-                        | (ArmorShootsInCircle, false) => (
-                            currentPowerups,
-                            true,
-                          )
-                        | (ArmorLaser, false) => (currentPowerups, true)
-                        | (ArmorFreeze, false) => (currentPowerups, true)
                         | _ => ([p, ...currentPowerups], usedAPowerup)
                         },
                       ([], false),
@@ -902,77 +931,91 @@ let moveEnemiesAndAttack = (state, dt, pathfinderInstance, env) => {
 };
 
 let spawnPowerups = (state, playerXScreenScaledf, playerYScreenScaledf, env) => {
-  let (cellX, cellY) = (
-    int_of_float(floor(state.x /. tileSizef)),
-    int_of_float(floor(state.y /. tileSizef)),
-  );
-  let (cellNumHalfWidth, cellNumHalfHeight) = (
-    int_of_float(playerXScreenScaledf /. tileSizef),
-    int_of_float(playerYScreenScaledf /. tileSizef),
-  );
+  let numberOfPowerups =
+    Array.fold_left(
+      (count, column) =>
+        Array.fold_left(
+          (count, {kind}) =>
+            switch (kind) {
+            | Powerup(_) => count + 1
+            | _ => count
+            },
+          count,
+          column,
+        ),
+      0,
+      state.grid,
+    );
 
-  let x = ref(-1);
-  let y = ref(-1);
-  let running = ref(true);
-  while (running^) {
-    let whichQuadrant = Utils.random(~min=0, ~max=4);
+  let maxNumberOfPowerups = 2;
+  if (numberOfPowerups < maxNumberOfPowerups) {
+    let (cellX, cellY) = (
+      int_of_float(floor(state.x /. tileSizef)),
+      int_of_float(floor(state.y /. tileSizef)),
+    );
+    let (cellNumHalfWidth, cellNumHalfHeight) = (
+      int_of_float(playerXScreenScaledf /. tileSizef),
+      int_of_float(playerYScreenScaledf /. tileSizef),
+    );
 
-    let (minX, maxX, minY, maxY) =
-      if (whichQuadrant == 0) {
-        (
-          /* TOP */
-          0,
-          gridWidth,
-          0,
-          max(0, cellY - cellNumHalfHeight - 1),
-        );
-      } else if (whichQuadrant == 1) {
-        (
-          /* RIGHT */
-          min(gridWidth, cellX + cellNumHalfWidth + 1),
-          gridWidth,
-          0,
-          gridHeight,
-        );
-      } else if (whichQuadrant == 2) {
-        (
-          /* BOTTOM */
-          0,
-          gridWidth,
-          min(gridHeight, cellY + cellNumHalfHeight + 1),
-          gridHeight,
-        );
-      } else {
-        (
-          /* LEFT */
-          0,
-          max(0, cellX - cellNumHalfWidth - 1),
-          0,
-          gridHeight,
-        );
+    let x = ref(-1);
+    let y = ref(-1);
+    let running = ref(true);
+    while (running^) {
+      let whichQuadrant = Utils.random(~min=0, ~max=4);
+
+      let (minX, maxX, minY, maxY) =
+        if (whichQuadrant == 0) {
+          (
+            /* TOP */
+            0,
+            gridWidth,
+            0,
+            max(0, cellY - cellNumHalfHeight - 1),
+          );
+        } else if (whichQuadrant == 1) {
+          (
+            /* RIGHT */
+            min(gridWidth, cellX + cellNumHalfWidth + 1),
+            gridWidth,
+            0,
+            gridHeight,
+          );
+        } else if (whichQuadrant == 2) {
+          (
+            /* BOTTOM */
+            0,
+            gridWidth,
+            min(gridHeight, cellY + cellNumHalfHeight + 1),
+            gridHeight,
+          );
+        } else {
+          (
+            /* LEFT */
+            0,
+            max(0, cellX - cellNumHalfWidth - 1),
+            0,
+            gridHeight,
+          );
+        };
+      if (minX != maxX && minY != maxY) {
+        x := Utils.random(~min=minX, ~max=maxX);
+        y := Utils.random(~min=minY, ~max=maxY);
       };
-    if (minX != maxX && minY != maxY) {
-      x := Utils.random(~min=minX, ~max=maxX);
-      y := Utils.random(~min=minY, ~max=maxY);
+      switch (getCell(state.grid, (x^, y^))) {
+      | {collision: true}
+      | {kind: Powerup(_)} => ()
+      | _ => running := false
+      };
     };
-    switch (getCell(state.grid, (x^, y^))) {
-    | {collision: true}
-    | {kind: Powerup(_)} => ()
-    | _ => running := false
+
+    /* @Mutation */
+    state.grid[x^][y^] = {
+      collision: false,
+      kind: Powerup({time: 1., kind: Armor}),
     };
   };
 
-  let kind =
-    switch (Utils.random(~min=0, ~max=4)) {
-    | 0 => Armor
-    | 1 => ArmorShootsInCircle
-    | 2 => ArmorLaser
-    | 3 => ArmorFreeze
-    | _ => failwith("Added a powerup without updating this!")
-    };
-
-  /* @Mutation */
-  state.grid[x^][y^] = {collision: false, kind: Powerup({time: 1., kind})};
   state;
 };
 
@@ -1350,16 +1393,22 @@ let movePlayerAndAttack = (state, dt, didTapOnSwapButton, mx, my, env) => {
     );
     let cell = getCell(state.grid, cellPos);
     if (cell.kind == Door && cell.collision) {
-      setCell(state.grid, cellPos, {...cell, collision: false});
+      /* @Mutation */
+      setCell(
+        state.grid,
+        cellPos,
+        {...cell, collision: false},
+      );
     };
 
     /* Only allow one powerup at a time right now
 
-               Ben - October 26th 2018
-        */
+              Ben - October 26th 2018
+       */
     let state =
       switch (cell.kind) {
       | Powerup(p) when List.length(state.currentPowerups) == 0 =>
+        /* @Mutation */
         setCell(state.grid, cellPos, {...cell, kind: Floor});
         {...state, currentPowerups: [p, ...state.currentPowerups]};
       | _ => state
@@ -1408,7 +1457,12 @@ let drawPowerup = (x, y, kind, env) => {
   | _ => Draw.fill(Utils.color(0, 0, 0, 255), env)
   };
   let rad = 12.;
-  Draw.ellipsef(~center=(x +. rad, y +. rad), ~radx=rad, ~rady=rad, env);
+  Draw.ellipsef(
+    ~center=(x +. tileSizef /. 2., y +. tileSizef /. 2.),
+    ~radx=rad,
+    ~rady=rad,
+    env,
+  );
 };
 
 let drawBackground = (state, playerXScreenf, playerYScreenf, env) =>
@@ -1420,10 +1474,11 @@ let drawBackground = (state, playerXScreenf, playerYScreenf, env) =>
             float_of_int(cellX) *. tileSizef,
             float_of_int(cellY) *. tileSizef,
           );
+          let paddingForSomeGodDamReason = 10.;
           let left = state.x -. playerXScreenf;
           let right = state.x +. playerXScreenf;
-          let top = state.y -. playerYScreenf;
-          let bottom = state.y +. playerYScreenf;
+          let top = state.y -. playerYScreenf -. paddingForSomeGodDamReason;
+          let bottom = state.y +. playerYScreenf +. paddingForSomeGodDamReason;
           if (x
               +. tileSizef > left
               && x < right
@@ -1897,7 +1952,8 @@ let drawAimLine = (state, mx, my, playerXScreenf, playerYScreenf, env) =>
           state.realTime -. startAimTime < autoaimDisengageTime;
         if (shouldAssistAim) {
           let (dx, dy, dot) = aimAssist(state, dx, dy, mag, env);
-          if (dot > 0.98) {
+          let aimAssistMinAngle = 0.97;
+          if (dot > aimAssistMinAngle) {
             let mag = sqrt(dx *. dx +. dy *. dy);
             let moveX = dx /. mag *. moveSpeed;
             let moveY = dy /. mag *. moveSpeed;
@@ -1957,6 +2013,24 @@ let drawHealthBar = (state, env) => {
   );
 };
 
+let getLevel = currentLevel => {
+  let ((sx, sy), map) = Levels.levels[currentLevel];
+  let (grid, enemies) = Levels.parseMap(map);
+  if (currentLevel == 8) {
+    let x = ref(-1);
+    let y = ref(-1);
+
+    while (getCell(grid, (x^, y^)).collision) {
+      x := Utils.random(~min=0, ~max=gridWidth);
+      y := Utils.random(~min=0, ~max=gridHeight);
+    };
+
+    (x^, y^, grid, enemies);
+  } else {
+    (sx, sy, grid, enemies);
+  };
+};
+
 let setup = (size, assetDir, env) => {
   switch (size) {
   | `InitialSize => ()
@@ -1970,10 +2044,9 @@ let setup = (size, assetDir, env) => {
   };
   Random.init(0);
 
-  let currentLevel = 7;
-  let (startPos, map) = Levels.levels[currentLevel];
-  let (grid, enemies) = Levels.parseMap(map);
-  let (startPosX, startPosY) = startPos;
+  let currentLevel = 8;
+
+  let (startPosX, startPosY, grid, enemies) = getLevel(currentLevel);
   {
     x: float_of_int(startPosX) *. tileSizef +. tileSizef /. 2.,
     y: float_of_int(startPosY) *. tileSizef +. tileSizef /. 2.,
@@ -2015,14 +2088,6 @@ let setup = (size, assetDir, env) => {
         kind: Shotgun,
         bulletLifeSpan: 0.2,
       },
-      /*{
-          length: 5,
-          moveTime: 0.3,
-          playerTravelDistance: 40.,
-          bulletSpeed: 200.,
-          kind: ShootsBehindYou,
-          bulletLifeSpan: 1.,
-        },*/
     |],
     currentPowerups: [],
     grid,
@@ -2074,19 +2139,70 @@ let draw = (state, env) => {
   let state = moveBullets(state, dt, ~removeIfTooFar=true, env);
 
   let state =
-    if (Utils.randomf(~min=0., ~max=100.) < 50. *. dt) {
+    if ((
+          state.currentLevel == 6
+          || state.currentLevel == 7
+          || state.currentLevel == 8
+        )
+        && Utils.randomf(~min=0., ~max=100.) < 50.
+        *. dt) {
       spawnPowerups(state, playerXScreenScaledf, playerYScreenScaledf, env);
     } else {
       state;
     };
 
-  let shouldSpawnEnemy =
-    state.time > state.timeSinceLastSpawned
-    +. 0.5
-    *. (sin(state.time /. 50.) +. 1.);
+  let cosUpperBound = 1.6;
+  let cosLowerBound = 0.8;
+  let cosUpperBoundHard = 1.2;
+  let cosLowerBoundHard = 0.2;
+
+  /* In seconds */
+  let maxGameTimeUntilVeryHard = 800.;
+
+  let cosUpperBound =
+    -. ((state.time /. maxGameTimeUntilVeryHard) ** 2.) +. cosUpperBound;
+  let cosUpperBound = max(cosUpperBound, cosUpperBoundHard);
+
+  let cosLowerBound =
+    -. ((state.time /. (maxGameTimeUntilVeryHard +. 20.)) ** 2.)
+    +. cosLowerBound;
+  let cosLowerBound = max(cosLowerBound, cosLowerBoundHard);
+
+  let cosPhaseShift = 2.;
+
+  /* Maybe scale this based on your level */
+  let timeScalingFactor = 5.;
+  let cosSize = cosUpperBound -. cosLowerBound;
+  let timeUntilNextSpawn =
+    state.timeSinceLastSpawned
+    +. cos(state.time /. timeScalingFactor +. cosPhaseShift)
+    /. 2.
+    *. cosSize
+    +. cosSize
+    /. 2.
+    +. cosLowerBound;
+  let shouldSpawnEnemy = state.time > timeUntilNextSpawn;
+  let body =
+    sp(
+      "%f - %f",
+      state.time,
+      timeUntilNextSpawn -. state.timeSinceLastSpawned,
+    );
   let state =
-    if ((state.currentLevel == 6 || state.currentLevel == 7)
+    if ((
+          state.currentLevel == 6
+          || state.currentLevel == 7
+          || state.currentLevel == 8
+        )
         && shouldSpawnEnemy) {
+      let state =
+        spawnEnemies(
+          state,
+          playerXScreenScaledf,
+          playerYScreenScaledf,
+          ~outsideOfFieldOfView=true,
+          env,
+        );
       spawnEnemies(
         state,
         playerXScreenScaledf,
@@ -2219,9 +2335,6 @@ let draw = (state, env) => {
     let armorColor =
       switch (List.hd(state.currentPowerups)) {
       | {kind: Armor} => Utils.color(55, 55, 55, 255)
-      | {kind: ArmorShootsInCircle} => Utils.color(200, 55, 55, 255)
-      | {kind: ArmorLaser} => Utils.color(120, 55, 255, 255)
-      | {kind: ArmorFreeze} => Utils.color(55, 70, 255, 255)
       };
 
     Draw.fill(armorColor, env);
@@ -2237,14 +2350,21 @@ let draw = (state, env) => {
 
   drawScore(state, env);
 
+  /*Draw.text(~body, ~pos=(50, 100), env);
+
+  Draw.text(
+    ~body=sp("%f - %f", cosUpperBound, cosLowerBound),
+    ~pos=(50, 150),
+    env,
+  );*/
+
   if (state.health <= 0) {
-    let (startPos, map) = Levels.levels[state.currentLevel];
-    let (grid, enemies) = Levels.parseMap(map);
-    let (startPosX, startPosY) = startPos;
+    let (startPosX, startPosY, grid, enemies) = getLevel(state.currentLevel);
 
     {
       ...state,
       time: 0.,
+      timeSinceLastSpawned: 0.,
       score: 0,
       deathTime: 3.,
       x: float_of_int(startPosX) *. tileSizef +. tileSizef /. 2.,

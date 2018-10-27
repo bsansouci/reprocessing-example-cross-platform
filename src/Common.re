@@ -94,11 +94,10 @@ type weaponsT = {
   bulletSpeed: float,
   kind: weaponKindT,
 };
+
 type powerupKindT =
-  | Armor
-  | ArmorShootsInCircle
-  | ArmorLaser
-  | ArmorFreeze;
+  | Armor;
+  
 type powerupT = {
   time: float,
   kind: powerupKindT,
@@ -155,8 +154,8 @@ let print = Printf.printf;
 let cellToString = ((x, y)) =>
   "(" ++ string_of_int(x) ++ ", " ++ string_of_int(y) ++ ")";
 
-let gridWidth = 50;
-let gridHeight = 30;
+let gridWidth = 80;
+let gridHeight = 100;
 
 let getCell = (grid, (cellX, cellY)) =>
   if (cellX >= 0 && cellX < gridWidth && cellY >= 0 && cellY < gridHeight) {

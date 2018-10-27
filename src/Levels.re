@@ -305,6 +305,50 @@ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 |};
 let startPos8 = (10, 6);
 
+let map = Array.init(gridHeight, _ => Bytes.make(gridWidth, '0'));
+let shapes = [|
+  [(0, 0), (0, 1), (0, 2), (0, 3)],
+  [(0, 0), (0, 1), (1, 1), (1, 2)],
+  [(0, 0), (1, 0), (2, 0), (3, 0)],
+  [(0, 0), (1, 0), (2, 0), (3, 0), (3, 1), (3, 2)],
+  [(0, 0), (0, 1), (0, 2), (0, 4), (0, 5), (0, 6)],
+  [(0, 0), (0, 1), (0, 2), (0, 4), (1, 4), (2, 4), (3, 4)],
+  [(0, 0), (0, 1), (1, 0), (2, 0), (3, 0)],
+  [(0, 0), (0, 1), (0, 2), (1, 1), (2, 1)],
+|];
+
+for (i in 0 to gridHeight - 1) {
+  Bytes.set(map[i], 0, 'x');
+  Bytes.set(map[i], gridWidth - 1, 'x');
+};
+
+for (i in 0 to gridWidth - 1) {
+  Bytes.set(map[0], i, 'x');
+  Bytes.set(map[gridHeight - 1], i, 'x');
+};
+
+Random.init(int_of_float(Unix.gettimeofday()));
+for (_ in 1 to 100) {
+  let shape = shapes[Random.int(Array.length(shapes))];
+  let (px, py) = (Random.int(gridWidth), Random.int(gridHeight));
+  List.iter(
+    ((sx, sy)) => {
+      let (x, y) = (sx + px, sy + py);
+      if (x >= 0 && x < gridWidth && y >= 0 && y < gridHeight) {
+        Bytes.set(map[y], x, 'x');
+      };
+    },
+    shape,
+  );
+};
+
+let map9 = "\n" ++ String.concat(
+    "\n",
+    Array.to_list(Array.map(b => Bytes.to_string(b), map)),
+  ) ++ "\n";
+print_endline(map9);
+let startPos9 = (2, 2);
+
 let levels = [|
   (startPos1, map1),
   (startPos2, map2),
@@ -314,6 +358,7 @@ let levels = [|
   (startPos6, map6),
   (startPos7, map7),
   (startPos8, map8),
+  (startPos9, map9),
 |];
 
 let numberOfLevels = Array.length(levels);
