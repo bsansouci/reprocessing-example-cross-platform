@@ -448,7 +448,7 @@ let pushEnemyIfNecessary =
     (resolvedVx, resolvedVy, false);
   };
 
-let moveEnemiesAndAttack = (state, dt, pathfinderInstance, env) => {
+let moveEnemiesAndAttack = (state, dt, env) => {
   let (playerCellX, playerCellY) = (
     int_of_float(floor(state.x /. tileSizef)),
     int_of_float(floor(state.y /. tileSizef)),
@@ -476,6 +476,36 @@ let moveEnemiesAndAttack = (state, dt, pathfinderInstance, env) => {
       state.enemies,
     );
 
+  let didUpdateSomebody = ref(false);
+  let enemies =
+    List.map(
+      ({pos: {x, y}, pathLastUpdatedTime, path} as enemy) =>
+        if (didUpdateSomebody^) {
+          enemy;
+        } else {
+          let (cellX, cellY) = (
+            int_of_float(floor(x /. tileSizef)),
+            int_of_float(floor(y /. tileSizef)),
+          );
+          let (cellX, cellY) =
+            findClosestNonCollidableCell(state.grid, x, y, cellX, cellY);
+          let now = Unix.gettimeofday();
+          if (pathLastUpdatedTime < state.pathfinderInstanceTime) {
+            didUpdateSomebody := true;
+            let path =
+              Pathfinder.pathfind(
+                state.pathfinderInstance,
+                (playerCellX, playerCellY),
+                (cellX, cellY),
+              );
+            {...enemy, path, pathLastUpdatedTime: now};
+          } else {
+            enemy;
+          };
+        },
+      state.enemies,
+    );
+
   let movedEnemies =
     List.mapi(
       (
@@ -488,6 +518,8 @@ let moveEnemiesAndAttack = (state, dt, pathfinderInstance, env) => {
           timeUntilNextAttack,
           forcefullyMovedTimer,
           kind,
+          path,
+          pathLastUpdatedTime,
         } as enemy,
       ) =>
         if (isDead) {
@@ -560,18 +592,13 @@ let moveEnemiesAndAttack = (state, dt, pathfinderInstance, env) => {
           };
           switch (kind) {
           | Melee =>
-            let path =
-              Pathfinder.pathfind(
-                pathfinderInstance,
-                (playerCellX, playerCellY),
-                (cellX, cellY),
-              );
             let shouldFollowPath =
               List.for_all(
                 ((x, y)) =>
                   state.grid[x][y].kind != Door || !state.grid[x][y].collision,
                 path,
               );
+
             if (!shouldFollowPath) {
               {
                 ...defaultEnemyUpdates,
@@ -715,12 +742,6 @@ let moveEnemiesAndAttack = (state, dt, pathfinderInstance, env) => {
                 };
               };
             } else {
-              let path =
-                Pathfinder.pathfind(
-                  pathfinderInstance,
-                  (playerCellX, playerCellY),
-                  (cellX, cellY),
-                );
               switch (path) {
               | [] => {
                   ...defaultEnemyUpdates,
@@ -805,7 +826,7 @@ let moveEnemiesAndAttack = (state, dt, pathfinderInstance, env) => {
             };
           };
         },
-      state.enemies,
+      enemies,
     );
 
   /* Manage attacking */
@@ -1111,6 +1132,7 @@ let spawnEnemies =
       weaponRange: isShooter ? 200. : 0.,
       isDead: false,
       bulletLifeSpan: 2.,
+      pathLastUpdatedTime: 0.,
     },
     ...state.enemies,
   ];
@@ -1685,49 +1707,80 @@ let drawGuy =
   let headSize = 13. /. 2.;
   Draw.noStroke(env);
   Draw.fill(bodyColor, env);
-  Draw.ellipsef(~center=(px, py), ~radx=guyW, ~rady=guyH, env);
+  /*Draw.ellipsef(~center=(px, py), ~radx=guyW, ~rady=guyH, env);*/
+  Draw.rectf(~pos=(px, py), ~width=guyW, ~height=guyH, env);
   Draw.fill(Constants.black, env);
 
   /* Legs */
-  Draw.ellipsef(
-    ~center=(
+  /*Draw.ellipsef(
+      ~center=(
+        px -. guyW /. 2. +. sin(time *. 10. +. 2.) *. footW /. 2.,
+        py
+        +. guyH
+        -. 2.
+        +. min(cos(time *. animationSpeed +. 2.) *. footH /. 2., 0.5),
+      ),
+      ~radx=footW,
+      ~rady=footH,
+      env,
+    );*/
+  Draw.rectf(
+    ~pos=(
       px -. guyW /. 2. +. sin(time *. 10. +. 2.) *. footW /. 2.,
       py
       +. guyH
       -. 2.
       +. min(cos(time *. animationSpeed +. 2.) *. footH /. 2., 0.5),
     ),
-    ~radx=footW,
-    ~rady=footH,
+    ~width=footW,
+    ~height=footH,
     env,
   );
 
-  Draw.ellipsef(
-    ~center=(
+  /*Draw.ellipsef(
+      ~center=(
+        px +. guyW /. 2. +. sin(time *. animationSpeed) *. footW /. 2.,
+        py
+        +. guyH
+        -. 2.
+        +. min(cos(time *. animationSpeed) *. footH /. 3., 0.5),
+      ),
+      ~radx=footW,
+      ~rady=footH,
+      env,
+    );*/
+  Draw.rectf(
+    ~pos=(
       px +. guyW /. 2. +. sin(time *. animationSpeed) *. footW /. 2.,
       py
       +. guyH
       -. 2.
       +. min(cos(time *. animationSpeed) *. footH /. 3., 0.5),
     ),
-    ~radx=footW,
-    ~rady=footH,
+    ~width=footW,
+    ~height=footH,
     env,
   );
 
   /* Head */
-  Draw.ellipsef(
-    ~center=(
-      px,
-      py -. guyH +. headSize /. 2. +. sin(time *. animationSpeed),
-    ),
-    ~radx=headSize,
-    ~rady=headSize,
+  /*Draw.ellipsef(
+      ~center=(
+        px,
+        py -. guyH +. headSize /. 2. +. sin(time *. animationSpeed),
+      ),
+      ~radx=headSize,
+      ~rady=headSize,
+      env,
+    );*/
+  Draw.rectf(
+    ~pos=(px, py -. guyH +. headSize /. 2. +. sin(time *. animationSpeed)),
+    ~width=headSize,
+    ~height=headSize,
     env,
   );
 };
 
-let drawEnemies = (state, dt, realdt, pathfinderInstance, env) => {
+let drawEnemies = (state, dt, realdt, env) => {
   let (playerCellX, playerCellY) = (
     int_of_float(floor(state.x /. tileSizef)),
     int_of_float(floor(state.y /. tileSizef)),
@@ -1786,7 +1839,7 @@ let drawEnemies = (state, dt, realdt, pathfinderInstance, env) => {
           if (!cell.collision && !isDead) {
             let path =
               Pathfinder.pathfind(
-                pathfinderInstance,
+                state.pathfinderInstance,
                 (playerCellX, playerCellY),
                 (cellX, cellY),
               );
@@ -2101,6 +2154,9 @@ let setup = (size, assetDir, env) => {
     touches: [],
     didTap: false,
     timeSinceLastSpawned: 0.,
+
+    pathfinderInstance: Pathfinder.make(grid),
+    pathfinderInstanceTime: 1.,
   };
 };
 
@@ -2132,6 +2188,21 @@ let draw = (state, env) => {
     time: state.time +. dt,
     deathTime: max(0., state.deathTime -. realdt),
   };
+
+  let state =
+    if (List.for_all(
+          ({pathLastUpdatedTime}) =>
+            pathLastUpdatedTime > state.pathfinderInstanceTime,
+          state.enemies,
+        )) {
+      {
+        ...state,
+        pathfinderInstance: Pathfinder.make(state.grid),
+        pathfinderInstanceTime: Unix.gettimeofday(),
+      };
+    } else {
+      state;
+    };
 
   let (mx, my, _mx2, _my2, numOfTouches) = getTouchPositions(env);
 
@@ -2214,8 +2285,7 @@ let draw = (state, env) => {
       state;
     };
 
-  let pathfinderInstance = Pathfinder.make(state.grid);
-  let state = moveEnemiesAndAttack(state, dt, pathfinderInstance, env);
+  let state = moveEnemiesAndAttack(state, dt, env);
 
   let (state, didTapOnSwapButton) =
     checkSwapWeaponButton(state, mx, my, playerXScreenf, playerYScreenf, env);
@@ -2264,7 +2334,7 @@ let draw = (state, env) => {
   drawBackground(state, playerXScreenScaledf, playerYScreenScaledf, env);
 
   if (state.experiment == _DEBUG) {
-    Pathfinder.TupleSet.iter(
+    TupleSet.iter(
       ((x, y)) => {
         let (x, y) = (
           float_of_int(x) *. tileSizef,
@@ -2279,10 +2349,10 @@ let draw = (state, env) => {
           env,
         );
       },
-      pathfinderInstance.openSet,
+      state.pathfinderInstance.openSet,
     );
 
-    Pathfinder.TupleSet.iter(
+    TupleSet.iter(
       ((x, y)) => {
         let (x, y) = (
           float_of_int(x) *. tileSizef,
@@ -2297,13 +2367,13 @@ let draw = (state, env) => {
           env,
         );
       },
-      pathfinderInstance.closedSet,
+      state.pathfinderInstance.closedSet,
     );
   };
 
   drawSplashes(state, env);
 
-  drawEnemies(state, dt, realdt, pathfinderInstance, env);
+  drawEnemies(state, dt, realdt, env);
 
   let bodyColor =
     if (state.currentWeaponIndex == 0) {
@@ -2352,11 +2422,11 @@ let draw = (state, env) => {
 
   /*Draw.text(~body, ~pos=(50, 100), env);
 
-  Draw.text(
-    ~body=sp("%f - %f", cosUpperBound, cosLowerBound),
-    ~pos=(50, 150),
-    env,
-  );*/
+    Draw.text(
+      ~body=sp("%f - %f", cosUpperBound, cosLowerBound),
+      ~pos=(50, 150),
+      env,
+    );*/
 
   if (state.health <= 0) {
     let (startPosX, startPosY, grid, enemies) = getLevel(state.currentLevel);
@@ -2381,6 +2451,8 @@ let draw = (state, env) => {
       touches: [],
       didTap: false,
       currentPowerups: [],
+      pathfinderInstance: Pathfinder.make(state.grid),
+      pathfinderInstanceTime: 1.,
     };
   } else {
     {...state, prevMouseState: Env.mousePressed(env), didTap: false};

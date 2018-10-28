@@ -9,8 +9,7 @@ October 25th
       + Continuously shooting gun?
       + Shooting backwards gun?
 - Make enemies smarter
-    + shooters move away from the shotgun range
-    + shooters move away from you generally if you get too close (so they're not frozen)
+    + Add error to Melee
     + Add an enemy that dodges bullets
     + Cut-off behavior, something that'd get on the other side
 - Add grenade launcher guy

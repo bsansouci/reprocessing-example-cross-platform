@@ -413,6 +413,7 @@ let parseMap = map => {
                 weaponRange: 0.,
                 isDead: false,
                 bulletLifeSpan: 2.,
+                pathLastUpdatedTime: 0.,
               },
               ...enemies^,
             ];
@@ -446,6 +447,7 @@ let parseMap = map => {
                 weaponRange: 200.,
                 isDead: false,
                 bulletLifeSpan: 2.,
+                pathLastUpdatedTime: 0.,
               },
               ...enemies^,
             ];

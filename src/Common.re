@@ -74,6 +74,8 @@ type enemyT = {
   bulletLifeSpan: float,
   weaponRange: float,
   isDead: bool,
+
+  pathLastUpdatedTime: float,
 };
 
 type soundsT = {
@@ -116,6 +118,40 @@ type tileT = {
 
 module AssetMap = Map.Make(String);
 
+module TupleCompare = {
+  type t = (int, int);
+  let compare = ((x1, y1), (x2, y2)) =>
+    if (x1 == x2) {
+      if (y1 == y2) {
+        0;
+      } else if (y1 < y2) {
+        (-1);
+      } else {
+        1;
+      };
+    } else if (x1 < x2) {
+      (-1);
+    } else {
+      1;
+    };
+};
+
+module TupleMap = Map.Make(TupleCompare);
+
+module TupleSet = Set.Make(TupleCompare);
+
+type nodeT = {
+  mutable cameFrom: option((int, int)),
+  mutable gScore: float,
+};
+
+type pathfinderInstanceT = {
+  mutable map: TupleMap.t(nodeT),
+  mutable openSet: TupleSet.t,
+  mutable closedSet: TupleSet.t,
+  grid: array(array(tileT)),
+};
+
 type state = {
   x: float,
   y: float,
@@ -146,6 +182,9 @@ type state = {
   timeSinceLastSpawned: float,
   touches: list((Reprocessing.Events.touchT, float)),
   didTap: bool,
+  
+  pathfinderInstance: pathfinderInstanceT,
+  pathfinderInstanceTime: float,
 };
 
 let sp = Printf.sprintf;

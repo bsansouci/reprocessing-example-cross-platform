@@ -1,39 +1,5 @@
 open Common;
 
-module TupleCompare = {
-  type t = (int, int);
-  let compare = ((x1, y1), (x2, y2)) =>
-    if (x1 == x2) {
-      if (y1 == y2) {
-        0;
-      } else if (y1 < y2) {
-        (-1);
-      } else {
-        1;
-      };
-    } else if (x1 < x2) {
-      (-1);
-    } else {
-      1;
-    };
-};
-
-module TupleMap = Map.Make(TupleCompare);
-
-module TupleSet = Set.Make(TupleCompare);
-
-type nodeT = {
-  mutable cameFrom: option((int, int)),
-  mutable gScore: float,
-};
-
-type t = {
-  mutable map: TupleMap.t(nodeT),
-  mutable openSet: TupleSet.t,
-  mutable closedSet: TupleSet.t,
-  grid: array(array(tileT)),
-};
-
 let distanceHeuristic = ((x1, y1), (x2, y2)) => {
   let dx = x2 - x1;
   let dy = y2 - y1;
@@ -61,7 +27,7 @@ let rec pathfindHelper = (pathfinderState, goal) => {
 
   let (current, smallestFScore) =
     TupleSet.fold(
-      (cur, (smallesNodeSoFar, smallestScoreSoFar)) => {
+      (cur, (smallestNodeSoFar, smallestScoreSoFar)) => {
         let currentScore =
           switch (TupleMap.find(cur, pathfinderState.map)) {
           | exception _ =>
@@ -71,7 +37,7 @@ let rec pathfindHelper = (pathfinderState, goal) => {
         if (currentScore < smallestScoreSoFar) {
           (cur, currentScore);
         } else {
-          (smallesNodeSoFar, smallestScoreSoFar);
+          (smallestNodeSoFar, smallestScoreSoFar);
         };
       },
       pathfinderState.openSet,
@@ -88,7 +54,16 @@ let rec pathfindHelper = (pathfinderState, goal) => {
       TupleSet.add(current, pathfinderState.closedSet);
 
     let (x, y) = current;
-    let neighbors = [|(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)|];
+    let neighbors = [|
+      (x - 1, y),
+      (x + 1, y),
+      (x, y - 1),
+      (x, y + 1),
+      (x - 1, y - 1),
+      (x - 1, y + 1),
+      (x + 1, y - 1),
+      (x + 1, y + 1),
+    |];
     let rec loop = i =>
       if (i >= Array.length(neighbors)) {
         ();
@@ -109,7 +84,8 @@ let rec pathfindHelper = (pathfinderState, goal) => {
               node;
             | node => node
             };
-          let distToNeighbor = 1.;
+
+          let distToNeighbor = i > 3 ? 1.2 : 1.;
           let tentativeGScore = currentNode.gScore +. distToNeighbor;
 
           if (!TupleSet.mem(neighbor, pathfinderState.openSet)) {
