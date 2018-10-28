@@ -22,6 +22,8 @@ let almostMaxFloat = 99999999.;
 
 let collides = (grid, (x, y)) => grid[x][y].collision;
 
+let stepsCount = ref(0);
+
 let rec pathfindHelper = (pathfinderState, goal) => {
   let anyNode = TupleSet.choose(pathfinderState.openSet);
 
@@ -45,7 +47,7 @@ let rec pathfindHelper = (pathfinderState, goal) => {
     );
 
   if (current == goal) {
-    reconstructPath(pathfinderState, current);
+    Some(reconstructPath(pathfinderState, current));
   } else {
     /* @Mutation */
     pathfinderState.openSet =
@@ -59,76 +61,74 @@ let rec pathfindHelper = (pathfinderState, goal) => {
       (x + 1, y),
       (x, y - 1),
       (x, y + 1),
-      (x - 1, y - 1),
+      /*(x - 1, y - 1),
       (x - 1, y + 1),
       (x + 1, y - 1),
-      (x + 1, y + 1),
+      (x + 1, y + 1),*/
     |];
-    let rec loop = i =>
-      if (i >= Array.length(neighbors)) {
-        ();
-      } else {
-        let neighbor = neighbors[i];
-        if (TupleSet.mem(neighbor, pathfinderState.closedSet)
-            || collides(pathfinderState.grid, neighbor)) {
-          loop(i + 1);
-        } else {
-          let currentNode =
-            switch (TupleMap.find(current, pathfinderState.map)) {
-            | exception _ =>
-              let node = {gScore: almostMaxFloat, cameFrom: None};
+    for (i in 0 to Array.length(neighbors) - 1) {
+      let neighbor = neighbors[i];
+      if (!TupleSet.mem(neighbor, pathfinderState.closedSet)
+          && !collides(pathfinderState.grid, neighbor)) {
+        let currentNode =
+          switch (TupleMap.find(current, pathfinderState.map)) {
+          | exception _ =>
+            let node = {gScore: almostMaxFloat, cameFrom: None};
 
-              /* @Mutation */
-              pathfinderState.map =
-                TupleMap.add(current, node, pathfinderState.map);
-              node;
-            | node => node
-            };
-
-          let distToNeighbor = i > 3 ? 1.2 : 1.;
-          let tentativeGScore = currentNode.gScore +. distToNeighbor;
-
-          if (!TupleSet.mem(neighbor, pathfinderState.openSet)) {
             /* @Mutation */
-            pathfinderState.openSet =
-              TupleSet.add(neighbor, pathfinderState.openSet);
+            pathfinderState.map =
+              TupleMap.add(current, node, pathfinderState.map);
+            node;
+          | node => node
           };
 
-          let neighborNode =
-            switch (TupleMap.find(neighbor, pathfinderState.map)) {
-            | exception _ =>
-              let node = {gScore: almostMaxFloat, cameFrom: None};
+        let distToNeighbor = i > 3 ? 1.2 : 1.;
+        let tentativeGScore = currentNode.gScore +. distToNeighbor;
 
-              /* @Mutation */
-              pathfinderState.map =
-                TupleMap.add(neighbor, node, pathfinderState.map);
-              node;
-            | node => node
-            };
-          if (tentativeGScore >= neighborNode.gScore) {
-            loop(i + 1);
-          } else {
+        if (!TupleSet.mem(neighbor, pathfinderState.openSet)) {
+          /* @Mutation */
+          pathfinderState.openSet =
+            TupleSet.add(neighbor, pathfinderState.openSet);
+        };
+
+        let neighborNode =
+          switch (TupleMap.find(neighbor, pathfinderState.map)) {
+          | exception _ =>
+            let node = {gScore: almostMaxFloat, cameFrom: None};
+
             /* @Mutation */
-            neighborNode.cameFrom = Some(current);
-            neighborNode.gScore = tentativeGScore;
-            loop(i + 1);
+            pathfinderState.map =
+              TupleMap.add(neighbor, node, pathfinderState.map);
+            node;
+          | node => node
           };
+        if (tentativeGScore < neighborNode.gScore) {
+          /* @Mutation */
+          neighborNode.cameFrom = Some(current);
+          neighborNode.gScore = tentativeGScore;
         };
       };
-    loop(0);
+    };
 
     if (TupleSet.cardinal(pathfinderState.openSet) == 0) {
-      [];
+      Some
+        ([]);
         /* This probably means it can't find a path */
     } else {
-      pathfindHelper(pathfinderState, goal);
+      pathfinderState.stepsCount = pathfinderState.stepsCount + 1;
+      if (pathfinderState.stepsCount > maxPathfindingStepsPerEnemyPerTick) {
+        pathfinderState.stepsCount = 0;
+        None;
+      } else {
+        pathfindHelper(pathfinderState, goal);
+      };
     };
   };
 };
 
 let pathfind = (pathfinderState, start, goal) =>
   if (TupleSet.mem(goal, pathfinderState.closedSet)) {
-    reconstructPath(pathfinderState, goal);
+    Some(reconstructPath(pathfinderState, goal));
   } else {
     if (TupleSet.cardinal(pathfinderState.openSet) == 0) {
       /* @Mutation */
@@ -147,5 +147,5 @@ let make = grid => {
   let closedSet = TupleSet.empty;
   let pathfinderMap = ref(TupleMap.empty);
 
-  {map: pathfinderMap^, grid, openSet, closedSet};
+  {map: pathfinderMap^, grid, openSet, closedSet, stepsCount: 0};
 };

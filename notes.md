@@ -1,3 +1,6 @@
+- put dead people in another list
+
+
 October 25th
 - power-ups
     + Pause time for a short period of time

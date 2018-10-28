@@ -328,7 +328,7 @@ for (i in 0 to gridWidth - 1) {
 };
 
 Random.init(int_of_float(Unix.gettimeofday()));
-for (_ in 1 to 100) {
+for (_ in 1 to 200) {
   let shape = shapes[Random.int(Array.length(shapes))];
   let (px, py) = (Random.int(gridWidth), Random.int(gridHeight));
   List.iter(
@@ -342,11 +342,65 @@ for (_ in 1 to 100) {
   );
 };
 
-let map9 = "\n" ++ String.concat(
-    "\n",
-    Array.to_list(Array.map(b => Bytes.to_string(b), map)),
-  ) ++ "\n";
-print_endline(map9);
+let openSet = ref(TupleSet.empty);
+let closedSet = ref(TupleSet.empty);
+
+let x = ref(0);
+let y = ref(0);
+
+let collides = (x, y) => Bytes.get(map[y], x) == 'x';
+let getNeighbords = (x, y) => [
+  (x - 1, y),
+  (x + 1, y),
+  (x, y - 1),
+  (x, y + 1),
+];
+
+while (TupleSet.cardinal(closedSet^) < 100) {
+  x := Random.int(gridWidth);
+  y := Random.int(gridHeight);
+  closedSet := TupleSet.empty;
+  openSet := TupleSet.empty;
+  if (!collides(x^, y^)) {
+    openSet := TupleSet.add((x^, y^), openSet^);
+
+    while (TupleSet.cardinal(openSet^) > 0) {
+      let (x, y) = TupleSet.choose(openSet^);
+      openSet := TupleSet.remove((x, y), openSet^);
+      closedSet := TupleSet.add((x, y), closedSet^);
+
+      List.iter(
+        ((x, y)) =>
+          if (x >= 0
+              && x < gridWidth
+              && y >= 0
+              && y < gridHeight
+              && !collides(x, y)
+              && !TupleSet.mem((x, y), closedSet^)) {
+            openSet := TupleSet.add((x, y), openSet^);
+          },
+        getNeighbords(x, y),
+      );
+    };
+  };
+};
+
+for (y in 0 to gridHeight - 1) {
+  for (x in 0 to gridWidth - 1) {
+    if (!TupleSet.mem((x, y), closedSet^)) {
+      Bytes.set(map[y], x, 'x');
+    };
+  };
+};
+
+let map9 =
+  "\n"
+  ++ String.concat(
+       "\n",
+       Array.to_list(Array.map(b => Bytes.to_string(b), map)),
+     )
+  ++ "\n";
+/*print_endline(map9);*/
 let startPos9 = (2, 2);
 
 let levels = [|

@@ -12,6 +12,12 @@ let autoaimDisengageTime = 0.8;
 let enemyAttackDistance = 40.;
 let globalScale = 0.75;
 
+let maxPathfindingStepsPerEnemyPerTick = 100;
+
+let deathMessageMaxTime = 3.;
+
+let maxNumberOfPowerups = 4;
+
 type aimingPacketT = {
   x: float,
   y: float,
@@ -66,16 +72,17 @@ type enemyT = {
   direction: vec2,
   timeUntilNextAttack: float,
   forcefullyMovedTimer: float,
-  path: list((int, int)),
   kind: enemyKindT,
   bullets: list(bulletT),
   bulletSpeed: float,
   bulletDamage: int,
   bulletLifeSpan: float,
   weaponRange: float,
-  isDead: bool,
 
+  path: list((int, int)),
   pathLastUpdatedTime: float,
+  
+  mutable isDead: bool,
 };
 
 type soundsT = {
@@ -149,6 +156,7 @@ type pathfinderInstanceT = {
   mutable map: TupleMap.t(nodeT),
   mutable openSet: TupleSet.t,
   mutable closedSet: TupleSet.t,
+  mutable stepsCount: int,
   grid: array(array(tileT)),
 };
 
@@ -185,6 +193,11 @@ type state = {
   
   pathfinderInstance: pathfinderInstanceT,
   pathfinderInstanceTime: float,
+  numberOfPowerups: int,
+  startLocation: (int, int),
+  
+  /* Used for drawing the gun towards the right or the left */
+  lastAimDirectionX: float,
 };
 
 let sp = Printf.sprintf;
