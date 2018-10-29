@@ -428,7 +428,7 @@ let parseMap = map => {
   let i = ref(0);
   /* I think the string starts with a newline. */
   let j = ref(-1);
-  let enemies = ref([]);
+  let enemies : ref(list(enemyT)) = ref([]);
   for (k in 0 to String.length(map) - 1) {
     if (map.[k] == '\n') {
       i := 0;
@@ -461,7 +461,6 @@ let parseMap = map => {
                 forcefullyMovedTimer: 0.,
                 path: [],
                 kind: Melee,
-                bullets: [],
                 bulletSpeed: 0.,
                 bulletDamage: 0,
                 weaponRange: 0.,
@@ -495,7 +494,6 @@ let parseMap = map => {
                 forcefullyMovedTimer: 0.,
                 path: [],
                 kind: Shooter,
-                bullets: [],
                 bulletSpeed: 300.,
                 bulletDamage: 100,
                 weaponRange: 200.,

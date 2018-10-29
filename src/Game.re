@@ -519,8 +519,10 @@ let moveEnemiesAndAttack = (state, dt, enemyGrid, env) => {
       [],
       state.enemies,
     );
-
-  let movedEnemies =
+  
+  let newBullets = ref(state.enemyBullets);
+  let newBombs = ref(state.enemyBombs);
+  let enemies =
     List.mapi(
       (
         i,
@@ -566,7 +568,7 @@ let moveEnemiesAndAttack = (state, dt, enemyGrid, env) => {
             );
 
           /* Helper for moving towards the player instead of awkwardly pathfinding */
-          let moveInPlayerDirection =
+          let moveInDirection =
               (enemy, mag, playerDirectionX, playerDirectionY) => {
             let vx = playerDirectionX /. mag *. speed;
             let vy = playerDirectionY /. mag *. speed;
@@ -654,9 +656,46 @@ let moveEnemiesAndAttack = (state, dt, enemyGrid, env) => {
             | _ => (0., 0., false)
             }
           };
-          switch (kind) {
-          | Melee =>
-            /* @FixMe @Hack Somehow enemies keep swapping their direction and it doesn't make much sense.*/
+          
+          let moveAwayFromPlayer = (enemy, mag, playerDirectionX, playerDirectionY, cellX, cellY, minDistanceBetweenPlayerAndShooter) => {
+              if (mag < minDistanceBetweenPlayerAndShooter) {
+                moveInDirection(
+                  enemy,
+                  mag,
+                  -. playerDirectionX,
+                  -. playerDirectionY,
+                );
+              } else {
+                let vx = enemy.direction.x
+                    +. Utils.noise(enemy.pos.x, enemy.pos.y, state.time)
+                    *. 2.
+                    -. 1.;
+                let vy = enemy.direction.y
+                    +. Utils.noise(enemy.pos.x, enemy.pos.y, state.time)
+                    *. 2.
+                    -. 1.;
+                let enemiesInArea = getEnemiesInRegion(enemyGrid, cellX, cellY);
+                let (resolvedVx, resolvedVy, forcedToMove) =
+                  pushEnemyIfNecessary(
+                    ~state,
+                    ~enemy,
+                    ~dt,
+                    ~enemiesInArea,
+                    vx,
+                    vy,
+                  );
+                {
+                  ...enemy,
+                  direction: {x: resolvedVx, y: resolvedVy},
+                  pos: {
+                    x: enemy.pos.x +. resolvedVx *. dt,
+                    y: enemy.pos.y +. resolvedVy *. dt,
+                  },
+                };
+              };
+          };
+          
+          let moveAlongPath = () => {
             switch (path) {
             | [] => {
                 ...defaultEnemyUpdates,
@@ -667,7 +706,7 @@ let moveEnemiesAndAttack = (state, dt, enemyGrid, env) => {
               }
             | [_]
             | [_, _] =>
-              moveInPlayerDirection(
+              moveInDirection(
                 defaultEnemyUpdates,
                 mag,
                 playerDirectionX,
@@ -691,6 +730,45 @@ let moveEnemiesAndAttack = (state, dt, enemyGrid, env) => {
                 },
               };
             }
+          };
+          
+          switch (kind) {
+          | Melee => moveAlongPath()
+          | Bomber => 
+          if (mag < enemy.weaponRange) {
+              let enemy =
+                if (timeUntilNextAttack <= 0.) {
+                  /* Gets the last cell from a path towards the player, and shoot there instead of where the enemy currently is. It's a nice way to disincentivize the player from moving towards the bomber guys. */
+                  /*let rec getTail = (li) => {
+                    switch (li) {
+                    | [] => (state.x, state.y)
+                    | [_] => (state.x, state.y)
+                    | [(x, y), _] => (float_of_int(x) *. tileSizef +. tileSizef /. 2., float_of_int(y) *. tileSizef +. tileSizef /. 2.)
+                    | [_, ...rest] => getTail(rest)
+                    }
+                  };
+                  let (x, y) = getTail(path);*/
+                  newBombs := [{
+                        x: state.x -. playerDirectionX /. mag *. enemy.bulletSpeed *. 1.5,
+                        y: state.y -. playerDirectionY /. mag *. enemy.bulletSpeed *. 1.5,
+                        vx: playerDirectionX /. mag *. enemy.bulletSpeed,
+                        vy: playerDirectionY /. mag *. enemy.bulletSpeed,
+                        timeRemaining: defaultEnemyUpdates.bulletLifeSpan,
+                      }, ...newBombs^];
+                  {
+                    ...defaultEnemyUpdates,
+                    timeUntilNextAttack: bombTime +. 1.,
+                    direction: {x: 0., y: 0.}
+                  };
+                } else {
+                  defaultEnemyUpdates;
+                };
+              
+              moveAwayFromPlayer(enemy, mag, playerDirectionX, playerDirectionY, cellX, cellY, 200.);
+          } else {
+            moveAlongPath()
+          }
+          
           | Shooter =>
             let anyWallsInBetweenEnemyAndPlayer =
               isThereAWallBetweenTheEnemyAndThePlayer(
@@ -705,101 +783,41 @@ let moveEnemiesAndAttack = (state, dt, enemyGrid, env) => {
             if (!anyWallsInBetweenEnemyAndPlayer && mag < enemy.weaponRange) {
               let enemy =
                 if (timeUntilNextAttack <= 0.) {
-                  {
-                    ...defaultEnemyUpdates,
-                    timeUntilNextAttack: 1.,
-                    bullets: [
-                      {
+                  newBullets := [{
                         x,
                         y,
                         vx: playerDirectionX /. mag *. enemy.bulletSpeed,
                         vy: playerDirectionY /. mag *. enemy.bulletSpeed,
                         timeRemaining: defaultEnemyUpdates.bulletLifeSpan,
-                      },
-                      ...enemy.bullets,
-                    ],
+                      }, ...newBullets^];
+                  {
+                    ...defaultEnemyUpdates,
+                    timeUntilNextAttack: 1.,
                   };
                 } else {
                   defaultEnemyUpdates;
                 };
 
-              let minDistanceBetweenPlayerAndShooter = 160.;
-              if (mag < minDistanceBetweenPlayerAndShooter) {
-                moveInPlayerDirection(
-                  enemy,
-                  mag,
-                  -. playerDirectionX,
-                  -. playerDirectionY,
-                );
-              } else {
-                let direction = {
-                  x:
-                    enemy.direction.x
-                    +. Utils.noise(x, y, state.time)
-                    *. 2.
-                    -. 1.,
-                  y:
-                    enemy.direction.y
-                    +. Utils.noise(x, y, state.time)
-                    *. 2.
-                    -. 1.,
-                };
-                {
-                  ...enemy,
-                  direction,
-                  pos: {
-                    x: enemy.pos.x +. direction.x *. dt,
-                    y: enemy.pos.y +. direction.y *. dt,
-                  },
-                };
-              };
+                moveAwayFromPlayer(enemy, mag, playerDirectionX, playerDirectionY, cellX, cellY, 160.);
             } else {
-              switch (path) {
-              | []
-              | [_]
-              | [_, _] =>
-                {
-                  ...defaultEnemyUpdates,
-                  direction: {
-                    x: 0.,
-                    y: 0.,
-                  },
-                }
-              | [_, next, nextnext, ...rest] =>
-                let (resolvedVx, resolvedVy, forcedToMove) = followPath(path, x, y, cellX, cellY);
-                {
-                  ...defaultEnemyUpdates,
-                  forcefullyMovedTimer:
-                    forcedToMove ?
-                      forcefullyMovedTimerDefaultValue :
-                      defaultEnemyUpdates.forcefullyMovedTimer,
-                  pos: {
-                    x: x +. resolvedVx *. dt,
-                    y: y +. resolvedVy *. dt,
-                  },
-                  direction: {
-                    x: resolvedVx,
-                    y: resolvedVy,
-                  },
-                };
-              };
+              moveAlongPath()
             };
           };
         },
       enemies,
     );
 
-  /* Manage attacking */
-  let (health, enemies, currentPowerups) =
+  /* Manage melee attacking */
+  let (health, currentPowerups) =
     List.fold_left(
       (
-        (health, enemies, currentPowerups),
+        (health, currentPowerups),
         {pos: {x, y}, isDead, timeUntilNextAttack, kind} as enemy,
       ) =>
         switch (kind) {
         | Melee =>
           if (isDead) {
-            (health, [enemy, ...enemies], currentPowerups);
+            (health, currentPowerups);
           } else if (timeUntilNextAttack <= 0.) {
             let dx = state.x -. x;
             let dy = state.y -. y;
@@ -817,21 +835,28 @@ let moveEnemiesAndAttack = (state, dt, enemyGrid, env) => {
                 );
               (
                 usedAPowerup ? health : health - 101,
-                [{...enemy, timeUntilNextAttack: 1.}, ...enemies],
                 currentPowerups,
               );
             } else {
-              (health, [enemy, ...enemies], currentPowerups);
+              (health, currentPowerups);
             };
           } else {
-            (health, [enemy, ...enemies], currentPowerups);
+            (health, currentPowerups);
           }
         | Shooter =>
-          let (health, bullets, currentPowerups) =
+          (health, currentPowerups);
+        | Bomber => (health, currentPowerups)
+        },
+      (state.health, state.currentPowerups),
+      enemies,
+    );
+  
+  /* Manage enemyBullets */
+  let (health, enemyBullets, currentPowerups) =
             List.fold_left(
               (
-                (health, bullets, currentPowerups),
-                {x, y, vx, vy} as bullet: bulletT,
+                (health, enemyBullets, currentPowerups),
+                {x, y, vx, vy, timeRemaining} as bullet: bulletT,
               ) => {
                 let (playerDirectionX, playerDirectionY) = (
                   state.x -. x,
@@ -864,8 +889,8 @@ let moveEnemiesAndAttack = (state, dt, enemyGrid, env) => {
                       currentPowerups,
                     );
                   (
-                    usedAPowerup ? health : health - enemy.bulletDamage,
-                    bullets,
+                    usedAPowerup ? health : health - 101,
+                    enemyBullets,
                     currentPowerups,
                   );
                 } else {
@@ -880,7 +905,7 @@ let moveEnemiesAndAttack = (state, dt, enemyGrid, env) => {
                       vy,
                     )
                   ) {
-                  | None => (health, bullets, currentPowerups)
+                  | None => (health, enemyBullets, currentPowerups)
                   | Some((vx, vy)) => (
                       health,
                       [
@@ -891,7 +916,7 @@ let moveEnemiesAndAttack = (state, dt, enemyGrid, env) => {
                           vy,
                           timeRemaining: bullet.timeRemaining -. dt,
                         },
-                        ...bullets,
+                        ...enemyBullets,
                       ],
                       currentPowerups,
                     )
@@ -899,16 +924,60 @@ let moveEnemiesAndAttack = (state, dt, enemyGrid, env) => {
                 };
               },
               (health, [], currentPowerups),
-              enemy.bullets,
+              newBullets^,
             );
-          (health, [{...enemy, bullets}, ...enemies], currentPowerups);
-        },
-      (state.health, [], state.currentPowerups),
-      movedEnemies,
-    );
-
-  /*let enemies = List.rev(enemies);*/
-  {...state, enemies, health, currentPowerups};
+            
+  let (health, enemyBombs, currentPowerups) = List.fold_left(((health, bombs, currentPowerups), {timeRemaining, x, y, vx, vy} as bomb) => {
+    if (timeRemaining <= 0.) {
+      let (playerDirectionX, playerDirectionY) = (
+                  state.x -. x,
+                  state.y -. y,
+                );
+                let mag =
+                  sqrt(
+                    playerDirectionX
+                    *. playerDirectionX
+                    +. playerDirectionY
+                    *. playerDirectionY,
+                  );
+                if (mag < bombRadius) {
+                  let (currentPowerups, usedAPowerup) =
+                    List.fold_left(
+                      ((currentPowerups, usedAPowerup), p: powerupT) =>
+                        switch (p.kind, usedAPowerup) {
+                        | (Armor, false) => (currentPowerups, true)
+                        | _ => ([p, ...currentPowerups], usedAPowerup)
+                        },
+                      ([], false),
+                      currentPowerups,
+                    );
+                  (usedAPowerup ? health : 0, bombs, currentPowerups)
+                } else {
+                  (health, bombs, currentPowerups)
+                }
+    } else {
+      
+      (
+                      health,
+                      [
+                        {
+                          x: x +. vx *. dt,
+                          y: y +. vy *. dt,
+                          vx,
+                          vy,
+                          timeRemaining: bomb.timeRemaining -. dt,
+                        },
+                        ...bombs,
+                      ],
+                      currentPowerups,
+                    )
+      
+      /*(health, [{...bomb, timeRemaining: bomb.timeRemaining -. dt}, ...bombs], currentPowerups)*/
+    }
+  }, (health, [], currentPowerups), newBombs^);
+  let enemies = List.rev(enemies);
+  let enemyBombs = List.rev(enemyBombs);
+  {...state, enemies, enemyBullets, enemyBombs, health, currentPowerups};
 };
 
 let spawnPowerups = (state, playerXScreenScaledf, playerYScreenScaledf, env) => {
@@ -1048,7 +1117,16 @@ let spawnEnemies =
     };
   };
 
-  let isShooter = Utils.randomf(~min=0., ~max=1.) < 0.7;
+  let (kind, bulletSpeed, bulletDamage, weaponRange, bulletLifeSpan) = {
+    let r = Utils.randomf(~min=0., ~max=1.);
+    if (r < 0.2) {
+      (Melee, 0., 0, 0., 0.2)
+    } else if (r < 0.3) {
+      (Bomber, 100., 0, 320., 1.)
+    } else {
+      (Shooter, 300., 100, 240., 0.2)
+    }
+  };
 
   let enemies = [
     {
@@ -1069,13 +1147,12 @@ let spawnEnemies =
       timeUntilNextAttack: 0.,
       forcefullyMovedTimer: 0.,
       path: [],
-      kind: isShooter ? Shooter : Melee,
-      bullets: [],
-      bulletSpeed: isShooter ? 300. : 0.,
-      bulletDamage: isShooter ? 100 : 0,
-      weaponRange: isShooter ? 240. : 0.,
+      kind,
+      bulletSpeed,
+      bulletDamage,
+      weaponRange,
       isDead: false,
-      bulletLifeSpan: 2.,
+      bulletLifeSpan,
       pathLastUpdatedTime: 0.,
     },
     ...state.enemies,
@@ -1481,8 +1558,6 @@ let drawBackground = (state, playerXScreenf, playerYScreenf, env) => {
 };
 
 let drawDeathMessage = (state, env) => {
-  let (sx, sy) = state.startLocation;
-  let (x, y) = cellToWorld((sx, sy));
   Draw.pushStyle(env);
   let body = "go fight";
   let textWidth = Draw.textWidth(~body, ~font=state.font, env);
@@ -1511,7 +1586,7 @@ let drawDeathMessage = (state, env) => {
   Draw.tint(Utils.color(~r=255, ~g=20, ~b=50, ~a=alpha), env);
   Draw.text(
     ~body, ~font=state.font,
-    ~pos=(int_of_float(x) - textWidth / 2, int_of_float(y) - 100),
+    ~pos=(- textWidth / 2,  -100),
     env,
   );
   Draw.popStyle(env);
@@ -1572,6 +1647,19 @@ let drawBullets =
   );
 };
 
+let drawBombs = (bombs, dt, env) => {
+  Draw.stroke(Constants.black, env);
+  Draw.strokeWeight(2, env);
+  List.iter(({x, y, vx, vy, timeRemaining}: bulletT) => {
+    Draw.fill(Utils.color(~r=255, ~g=60, ~b=80, ~a=100), env);
+    Draw.ellipsef(~center=(x, y), ~radx=bombRadius, ~rady=bombRadius, env);
+    
+    Draw.fill(Utils.color(~r=255, ~g=60, ~b=80, ~a=255), env);
+    let percentage = (bombTime -. timeRemaining) /. bombTime;
+    Draw.ellipsef(~center=(x, y), ~radx=percentage *. bombRadius, ~rady=percentage *. bombRadius, env);
+  }, bombs);
+};
+
 let drawScore = (state, env) => {
   let body = sp("%d", state.score);
   let textWidth = Draw.textWidth(~body, ~font=state.font, env);
@@ -1581,7 +1669,7 @@ let drawScore = (state, env) => {
   Draw.strokeWeight(8, env);
   Draw.stroke(Utils.color(~r=255, ~g=255, ~b=255, ~a=255), env);
   Draw.fill(Utils.color(~r=255, ~g=255, ~b=255, ~a=255), env);
-  Draw.rect(~pos=(x - 8, y - 30), ~width=textWidth + 16, ~height=38, env);
+  Draw.rect(~pos=(x - 8, y - 28), ~width=textWidth + 16, ~height=34, env);
   Draw.tint(Utils.color(~r=0, ~g=0, ~b=0, ~a=150), env);
   Draw.text(~pos=(x, y), ~body, ~font=state.font, env);
   Draw.popStyle(env);
@@ -1621,6 +1709,7 @@ let drawGuy =
       state,
       (px, py),
       dirX,
+      ~kind,
       ~bodyColor,
       ~feetColor,
       time,
@@ -1646,16 +1735,25 @@ let drawGuy =
   /* Gun */
   let gunW = guyW +. 6.;
   let gunH = 16.;
-  let (gunW, x) = if (dirX > 0.) {
-    (-. gunW, px +. gunW /. 2.)
-  } else {
-    (gunW, px -. gunW /. 2.)
-  };
-  let pos = (
-      x,
-      py -. gunH /. 2. +. sin(time *. animationSpeed +. 3.),
-    );
-  Draw.subImagef(img, ~pos, ~width=gunW, ~height=gunH, ~texPos=(36, 3), ~texWidth=84, ~texHeight=31, env);
+    let (gunW, x) = if (dirX > 0.) {
+      (-. gunW, px +. gunW /. 2.)
+    } else {
+      (gunW, px -. gunW /. 2.)
+    };
+    let y = 
+        py -. gunH /. 2. +. sin(time *. animationSpeed +. 3.);
+  switch (kind) {
+  | Shooter => 
+  let x = if (dirX > 0.) { x +. 2.} else { x };
+    Draw.subImagef(img, ~pos=(x, y), ~width=gunW, ~height=gunH, ~texPos=(36, 3), ~texWidth=84, ~texHeight=31, env);
+  | Melee => 
+    let gunW = if (dirX > 0.) { gunW +. 4. } else { gunW -. 4. };
+    let x = if (dirX > 0.) { x } else { x +. 1.};
+    let y = y +. 2.;
+    Draw.subImagef(img, ~pos=(x, y), ~width=gunW, ~height=gunH -. 4., ~texPos=(72, 66), ~texWidth=85, ~texHeight=31, env);
+  | Bomber =>
+    Draw.subImagef(img, ~pos=(x, y), ~width=gunW, ~height=gunH, ~texPos=(73, 108), ~texWidth=88, ~texHeight=36, env);
+  }
   
   Draw.tint(feetColor, env);
   /* Legs */
@@ -1667,7 +1765,7 @@ let drawGuy =
       +. min(cos(time *. animationSpeed +. 2.) *. footH /. 6., 0.5),
     );
   
-  Draw.subImagef(img, ~pos, ~width=footW, ~height=footH, ~texPos=(4, 36), ~texWidth=30, ~texHeight=18, env);
+  Draw.subImagef(img, ~pos, ~width=footW, ~height=footH, ~texPos=(4, 36), ~texWidth=28, ~texHeight=18, env);
   
   let pos = 
   (
@@ -1677,7 +1775,7 @@ let drawGuy =
       -. 4. -. footH /. 2.
       +. min(cos(time *. animationSpeed) *. footH /. 6., 0.5),
     );
-  Draw.subImagef(img, ~pos, ~width=footW, ~height=footH, ~texPos=(4, 36), ~texWidth=30, ~texHeight=18, env);
+  Draw.subImagef(img, ~pos, ~width=footW, ~height=footH, ~texPos=(4, 36), ~texWidth=28, ~texHeight=18, env);
   
   /* Head */
   let (headW) = if (dirX > 0.) {
@@ -1699,16 +1797,12 @@ let drawEnemies = (state, dt, realdt, env) => {
     int_of_float(floor(state.y /. tileSizef)),
   );
 
+  let color = Utils.color(~r=255, ~g=60, ~b=80, ~a=255);
   List.iter(
-    ({pos: {x, y}, isDead, direction, speed, path, bullets}) => {
-      let color = Utils.color(~r=255, ~g=60, ~b=80, ~a=255);
+    ({pos: {x, y}, kind, isDead, direction, speed, path}) => {
       if (!isDead) {
-        /*drawGuy(state, ( x -. direction.x  *. dt *. 8.,
-              y -. direction.y *. dt *. 8.,), state.x -. x, ~bodyColor=Utils.color(~r=255, ~g=20, ~b=50, ~a=150), state.time, env);*/
-        drawGuy(state, (x, y), state.x -. x, ~bodyColor=color, ~feetColor=Utils.color(~r=200, ~g=10, ~b=40, ~a=255), state.time, env);
+          drawGuy(state, (x, y), state.x -. x, ~kind, ~bodyColor=color, ~feetColor=Utils.color(~r=200, ~g=10, ~b=40, ~a=255), state.time, env);
       };
-
-      drawBullets(bullets, dt, ~color, ~bulletWidth=8., ~strokeWeight=2, env);
 
       if (state.experiment == _DEBUG) {
         let (cellX, cellY) = (
@@ -1792,6 +1886,10 @@ let drawEnemies = (state, dt, realdt, env) => {
     },
     state.enemies,
   );
+  
+  drawBullets(state.enemyBullets, dt, ~color, ~bulletWidth=8., ~strokeWeight=2, env);
+  
+  drawBombs(state.enemyBombs, dt, env);
 
   /* Draw pineapple dots */
   if (state.experiment == _DEBUG) {
@@ -1976,6 +2074,8 @@ let setup = (size, assetDir, env) => {
       Draw.createImage(~width=100 * tileSize, ~height=100 * tileSize, env),
     assetMap: loadAssetMap(env, possibleFruits),
     bullets: [],
+    enemyBullets: [],
+    enemyBombs: [],
     splashes: [],
     experiment: 0,
     prevMouseState: false,
@@ -2004,7 +2104,7 @@ let setup = (size, assetDir, env) => {
         bulletLifeSpan: 0.18,
       },
     |],
-    currentPowerups: [{time: 1., kind: Armor}],
+    currentPowerups: [],
     grid,
     velocity: {
       x: 0.,
@@ -2240,20 +2340,7 @@ let draw = (state, env) => {
 
   drawSplashes(state, env);
   
-  /*Draw.popMatrix(env);
-  
-  Draw.pushMatrix(env);
-  Draw.translate(~x=playerXScreenf, ~y=playerYScreenf, env);
-  Draw.scale(~x=globalScale, ~y=globalScale, env);
-  Draw.translate(~x=-. state.x, ~y=-. state.y, env);*/
-  
   drawEnemies(state, dt, realdt, env);
-  
-/*  Draw.popMatrix(env);
-  Draw.pushMatrix(env);
-  Draw.translate(~x=playerXScreenf, ~y=playerYScreenf, env);
-  Draw.scale(~x=globalScale, ~y=globalScale, env);
-  Draw.translate(~x=-. state.x, ~y=-. state.y, env);*/
   
   let (bodyColor, feetColor) =
     if (state.currentWeaponIndex == 0) {
@@ -2291,7 +2378,7 @@ let draw = (state, env) => {
   drawArmor(state, playerXScreenf, playerYScreenf, env);
 
   /* Draw the player */
-  drawGuy(state, (playerXScreenf, playerYScreenf), state.lastAimDirectionX, ~bodyColor, ~feetColor, state.time, env);
+  drawGuy(state, (playerXScreenf, playerYScreenf), state.lastAimDirectionX, ~kind=Shooter, ~bodyColor, ~feetColor, state.time, env);
   
   drawScore(state, env);
 
@@ -2319,6 +2406,8 @@ let draw = (state, env) => {
       health: 100,
       enemies,
       bullets: [],
+      enemyBullets: [],
+      enemyBombs: [],
       splashes: [],
       prevMouseState: false,
       currentWeaponIndex: 0,

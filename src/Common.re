@@ -18,6 +18,9 @@ let deathMessageMaxTime = 3.;
 
 let maxNumberOfPowerups = 4;
 
+let bombTime = 1.0;
+let bombRadius = 80.;
+
 type aimingPacketT = {
   x: float,
   y: float,
@@ -53,7 +56,8 @@ let zeroVec = {x: 0., y: 0.};
 
 type enemyKindT =
   | Melee
-  | Shooter;
+  | Shooter
+  | Bomber;
 
 let makeEnemyID = {
   let nextId = ref(0);
@@ -73,7 +77,6 @@ type enemyT = {
   timeUntilNextAttack: float,
   forcefullyMovedTimer: float,
   kind: enemyKindT,
-  bullets: list(bulletT),
   bulletSpeed: float,
   bulletDamage: int,
   bulletLifeSpan: float,
@@ -170,6 +173,8 @@ type state = {
   enemies: list(enemyT),
   splashes: list(splashT),
   bullets: list(bulletT),
+  enemyBullets: list(bulletT),
+  enemyBombs: list(bulletT),
   bg: Reprocessing.imageT,
   cachedBackground: Reprocessing.imageT,
   assetMap: AssetMap.t(Reprocessing.imageT),
