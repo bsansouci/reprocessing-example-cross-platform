@@ -198,6 +198,8 @@ type state = {
   
   /* Used for drawing the gun towards the right or the left */
   lastAimDirectionX: float,
+  
+  font: Reprocessing.fontT,
 };
 
 let sp = Printf.sprintf;

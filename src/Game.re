@@ -1485,7 +1485,7 @@ let drawDeathMessage = (state, env) => {
   let (x, y) = cellToWorld((sx, sy));
   Draw.pushStyle(env);
   let body = "go fight";
-  let textWidth = Draw.textWidth(~body, env);
+  let textWidth = Draw.textWidth(~body, ~font=state.font, env);
   let alpha =
     if (state.deathTime > deathMessageMaxTime /. 2.) {
       int_of_float(
@@ -1510,7 +1510,7 @@ let drawDeathMessage = (state, env) => {
     };
   Draw.tint(Utils.color(~r=255, ~g=20, ~b=50, ~a=alpha), env);
   Draw.text(
-    ~body,
+    ~body, ~font=state.font,
     ~pos=(int_of_float(x) - textWidth / 2, int_of_float(y) - 100),
     env,
   );
@@ -1574,30 +1574,28 @@ let drawBullets =
 
 let drawScore = (state, env) => {
   let body = sp("%d", state.score);
-  let textWidth = Draw.textWidth(~body, env);
+  let textWidth = Draw.textWidth(~body, ~font=state.font, env);
   let (x, y) = (Env.width(env) - textWidth - 24, 42);
   Draw.pushStyle(env);
   Draw.strokeCap(Round, env);
   Draw.strokeWeight(8, env);
   Draw.stroke(Utils.color(~r=255, ~g=255, ~b=255, ~a=255), env);
   Draw.fill(Utils.color(~r=255, ~g=255, ~b=255, ~a=255), env);
-  Draw.rect(~pos=(x - 8, y - 8), ~width=textWidth + 16, ~height=48, env);
+  Draw.rect(~pos=(x - 8, y - 30), ~width=textWidth + 16, ~height=38, env);
   Draw.tint(Utils.color(~r=0, ~g=0, ~b=0, ~a=150), env);
-  Draw.text(~pos=(x, y), ~body, env);
+  Draw.text(~pos=(x, y), ~body, ~font=state.font, env);
   Draw.popStyle(env);
 };
 
 let drawBestScore = (state, env) => {
   let body = sp("Best score: %d", state.maxScore);
-  let (sx, sy) = state.startLocation;
-  let (x, y) = cellToWorld((sx, sy));
   Draw.pushStyle(env);
   Draw.tint(Utils.color(~r=0, ~g=0, ~b=0, ~a=150), env);
   Draw.text(
     ~pos=(
-      int_of_float(x) - Draw.textWidth(~body, env) / 2,
-      int_of_float(y) - 64,
-    ),
+       - Draw.textWidth(~body, ~font=state.font, env) / 2,
+      -64,
+    ), ~font=state.font,
     ~body,
     env,
   );
@@ -1611,8 +1609,8 @@ let drawLevelName = (state, env) => {
   Draw.pushStyle(env);
   Draw.tint(Utils.color(~r=0, ~g=0, ~b=0, ~a=150), env);
   Draw.text(
-    ~body,
-    ~pos=(int_of_float(x) - Draw.textWidth(~body, env) / 2, (-88)),
+    ~pos=(int_of_float(x) - Draw.textWidth(~body, ~font=state.font, env) / 2, (-88)),
+    ~body, ~font=state.font,
     env,
   );
   Draw.popStyle(env);
@@ -1985,6 +1983,7 @@ let setup = (size, assetDir, env) => {
       enemyDeathSound: Env.loadSound(assetDir +/ "enemyDeathSound.wav", env),
       playerShotSound: Env.loadSound(assetDir +/ "playerShotSound.wav", env),
     },
+    font: Draw.loadFont(~filename="assets" +/ "monaco_3x.fnt", env),
     currentWeaponIndex: 0,
     deathTime: 0.,
     weapons: [|
@@ -2265,15 +2264,26 @@ let draw = (state, env) => {
 
   drawBullets(state.bullets, dt, ~color=bodyColor, env);
 
-  /*drawLevelName(state, env);*/
-
-  drawBestScore(state, env);
-
-  /*if (state.deathTime > 0.) {*/
-  drawDeathMessage(state, env);
-  /*};*/
-
   Draw.popMatrix(env);
+  
+  {
+    Draw.pushMatrix(env);
+    let (sx, sy) = state.startLocation;
+    let (x, y) = cellToWorld((sx, sy));
+    
+    Draw.translate(~x=playerXScreenf, ~y=playerYScreenf, env);
+    Draw.scale(~x=globalScale, ~y=globalScale, env);
+    Draw.translate(~x=x -. state.x, ~y=y -. state.y, env);
+    Draw.scale(~x=2. -. globalScale, ~y=2. -. globalScale, env);
+    
+    drawBestScore(state, env);
+
+    if (state.deathTime > 0.) {
+      drawDeathMessage(state, env);
+    };
+    
+    Draw.popMatrix(env);
+  };
 
   /* Draw the aim line */
   drawAimLine(state, mx, my, playerXScreenf, playerYScreenf, env);
