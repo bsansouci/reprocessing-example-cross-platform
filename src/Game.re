@@ -106,6 +106,24 @@ let getEnemiesInRegion = (enemyGrid, x, y) => {
   List.concat(enemies);
 };
 
+let isTileHorizontal = (state, cellX, cellY) => {
+  let {kind: kindLeft} = getCell(state.grid, (cellX - 1, cellY));
+  let {kind: kindRight} = getCell(state.grid, (cellX + 1, cellY));
+  let {kind: kindTop} = getCell(state.grid, (cellX, cellY - 1));
+  let {kind: kindBottom} = getCell(state.grid, (cellX, cellY + 1));
+  
+  (kindLeft == Wall || kindRight == Wall) && kindTop != Wall && kindBottom != Wall;
+};
+
+let isTileVertical = (state, cellX, cellY) => {
+  let {kind: kindLeft} = getCell(state.grid, (cellX - 1, cellY));
+  let {kind: kindRight} = getCell(state.grid, (cellX + 1, cellY));
+  let {kind: kindTop} = getCell(state.grid, (cellX, cellY - 1));
+  let {kind: kindBottom} = getCell(state.grid, (cellX, cellY + 1));
+  
+  (kindTop == Wall || kindBottom == Wall) && kindLeft != Wall && kindRight != Wall
+};
+
 let bulletCollidesWithEnemies = ({x, y}: bulletT, enemies) => {
   let rec loop = enemiesRemaining =>
     switch (enemiesRemaining) {
@@ -122,10 +140,33 @@ let bulletCollidesWithEnemies = ({x, y}: bulletT, enemies) => {
   loop(enemies);
 };
 
+/* Better collision detection for bullets which take into account whether a wall is a vertical or 
+   horizontal line or a cross. */
+let bulletCollidesWithWall = (state, {x, y}: bulletT, (cellX, cellY)) => {
+  let {collision} = getCell(state.grid, (cellX, cellY));
+  if (collision) {
+    let (tileCenterX, tileCenterY) = (float_of_int(cellX) *. tileSizef +. tileSizef /. 2., float_of_int(cellY) *. tileSizef +. tileSizef /. 2.);
+    let (halfWidth, halfHeight) = if (isTileVertical(state, cellX, cellY)) {
+      (tileSizef /. 4., tileSizef /. 2.)
+    } else if (isTileHorizontal(state, cellX, cellY)) {
+      (tileSizef /. 2., tileSizef /. 4.)
+    } else {
+      (tileSizef /. 2., tileSizef /. 2.)
+    };
+    
+    x >= tileCenterX -. halfWidth && x <= tileCenterX +. halfWidth && y >= tileCenterY -. halfHeight && y <= tileCenterY +. halfHeight;
+  } else {
+    false
+  }
+};
+
 let loadAssetMap = (env, possibleFruits) => {
   let files = [
     ("./assets/splash_red_small.png", "splash_red"),
     ("./assets/all_assets.png", "all_assets"),
+    ("./assets/cross.png", "wall_cross"),
+    ("./assets/vertical_line.png", "wall_vertical"),
+    ("./assets/horizontal_line.png", "wall_horizontal"),
   ];
   List.fold_left(
     (assetMap, (filename, name)) =>
@@ -378,9 +419,10 @@ let moveBullets = (state, dt, ~enemyGrid, ~removeIfTooFar=false, env) =>
             int_of_float(floor(y /. tileSizef)),
           ),
         ),
-        resolveCollision(~state, ~dt, ~allowSlide=false, x, y, vx, vy),
+        bulletCollidesWithWall(state, bullet, (int_of_float(floor(x /. tileSizef)),
+            int_of_float(floor(y /. tileSizef)))),
       ) {
-      | (None, Some((vx, vy))) =>
+      | (None, false) =>
         if (removeIfTooFar && bulletIsOutOfRange(state, bullet, env)) {
           state;
         } else {
@@ -397,7 +439,7 @@ let moveBullets = (state, dt, ~enemyGrid, ~removeIfTooFar=false, env) =>
             ],
           };
         }
-      | (_, None) => state
+      | (_, true) => state
       | (Some(enemy), _) =>
         Env.playSound(
           state.sounds.enemyDeathSound,
@@ -1118,7 +1160,8 @@ let spawnEnemies =
   };
 
   let (kind, bulletSpeed, bulletDamage, weaponRange, bulletLifeSpan) = {
-    let r = Utils.randomf(~min=0., ~max=1.);
+    /*let r = Utils.randomf(~min=0., ~max=1.);*/
+    let r = 0.25;
     if (r < 0.2) {
       (Melee, 0., 0, 0., 0.2)
     } else if (r < 0.3) {
@@ -1546,11 +1589,23 @@ let drawBackground = (state, playerXScreenf, playerYScreenf, env) => {
           Draw.strokeWeight(1, env);*/
         Draw.rectf(~pos=(x, y), ~width=tileSizef, ~height=tileSizef, env);
       | Wall =>
-        Draw.fill(Utils.color(~r=124, ~g=124, ~b=124, ~a=255), env);
+        Draw.pushMatrix(env);
+        Draw.translate(~x, ~y, env);
+        if (isTileHorizontal(state, cellX, cellY)) {
+          Draw.translate(~x=0., ~y=tileSizef /. (4.), env);
+          Draw.imagef(AssetMap.find("wall_horizontal", state.assetMap), ~pos=(0., 0.), ~height=tileSizef /. 2., ~width=tileSizef, env);
+        } else if (isTileVertical(state, cellX, cellY)) {
+          Draw.translate(~x=tileSizef /. (4.), ~y=0., env);
+          Draw.imagef(AssetMap.find("wall_vertical", state.assetMap), ~pos=(0., 0.), ~height=tileSizef, ~width=tileSizef /. 2., env);
+        } else {
+          Draw.imagef(AssetMap.find("wall_cross", state.assetMap), ~pos=(0., 0.), ~height=tileSizef, ~width=tileSizef, env);
+        };
+        
+        Draw.popMatrix(env);
+        
+        /*Draw.fill(Utils.color(~r=124, ~g=124, ~b=124, ~a=255), env);
         Draw.noStroke(env);
-        /*Draw.stroke(Constants.black, env);
-          Draw.strokeWeight(1, env);*/
-        Draw.rectf(~pos=(x, y), ~width=tileSizef, ~height=tileSizef, env);
+        Draw.rectf(~pos=(x, y), ~width=tileSizef, ~height=tileSizef, env);*/
       | Powerup({kind}) => drawPowerup(state, x, y, kind, env)
       };
     };

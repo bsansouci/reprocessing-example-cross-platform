@@ -328,7 +328,8 @@ for (i in 0 to gridWidth - 1) {
 };
 
 Random.init(int_of_float(Unix.gettimeofday()));
-for (_ in 1 to 200) {
+let numerOfShapesToAddToMap = 200;
+for (_ in 1 to numerOfShapesToAddToMap) {
   let shape = shapes[Random.int(Array.length(shapes))];
   let (px, py) = (Random.int(gridWidth), Random.int(gridHeight));
   List.iter(

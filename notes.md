@@ -1,5 +1,5 @@
 - put dead people in another list
-
+- add reverse flood fill for closed areas
 
 October 25th
 - power-ups
