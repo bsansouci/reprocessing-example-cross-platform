@@ -220,7 +220,7 @@ let getCell = (grid, (cellX, cellY)) =>
   if (cellX >= 0 && cellX < gridWidth && cellY >= 0 && cellY < gridHeight) {
     grid[cellX][cellY];
   } else {
-    {kind: Wall, collision: true};
+    {kind: Floor, collision: true};
   };
 
 let setCell = (grid, (cellX, cellY), value) =>

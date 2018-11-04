@@ -1,5 +1,9 @@
-- put dead people in another list
-- add reverse flood fill for closed areas
+- Put dead people in another list
+- Fix bomber's collision
+- [WIP] Tweak bombers
+    + move to the right spot in 1 player movement + then start blowing up faster
+- [DONE] Make melee guys twice as fast
+-
 
 October 25th
 - power-ups
@@ -30,7 +34,7 @@ October 25th
 October 24th
 - gun levels -> doesn't feel needed
 
-October 23rd    
+October 23rd
 - What if you had "puzzles" to solve during the play
 - In room with closed doors, enemies should be initialized at half max time so that they don't immediately shoot
 - Combos (2x, 3x...)

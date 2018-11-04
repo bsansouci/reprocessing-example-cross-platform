@@ -357,11 +357,14 @@ let getNeighbords = (x, y) => [
   (x, y + 1),
 ];
 
+/* Make sure that there is no area the */
 while (TupleSet.cardinal(closedSet^) < 100) {
   x := Random.int(gridWidth);
   y := Random.int(gridHeight);
+
   closedSet := TupleSet.empty;
   openSet := TupleSet.empty;
+
   if (!collides(x^, y^)) {
     openSet := TupleSet.add((x^, y^), openSet^);
 
@@ -393,6 +396,20 @@ for (y in 0 to gridHeight - 1) {
     };
   };
 };
+
+let allSurroundedSquares = ref([]);
+for (y in 1 to gridHeight - 2) {
+  for (x in 1 to gridWidth - 2) {
+    if (collides(x, y) && collides(x + 1, y) && collides(x - 1, y) && collides(x, y + 1) && collides(x, y - 1)  && collides(x + 1, y + 1) && collides(x - 1, y + 1) && collides(x + 1, y - 1) && collides(x - 1, y - 1)) {
+      allSurroundedSquares := [(x, y), ...allSurroundedSquares^];
+    }
+  };
+};
+
+List.iter(((x, y)) => {
+  Bytes.set(map[y], x, 'e');
+}, allSurroundedSquares^);
+
 
 let map9 =
   "\n"
@@ -437,6 +454,7 @@ let parseMap = map => {
     } else {
       let cell =
         switch (map.[k]) {
+        | 'e' => {collision: true, kind: Floor}
         | 'x' => {collision: true, kind: Wall}
         | 'd' => {collision: true, kind: Door}
         | '0' => {collision: false, kind: Floor}
