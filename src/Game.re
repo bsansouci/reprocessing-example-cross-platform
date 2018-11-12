@@ -351,7 +351,6 @@ let loadAssetMap = (env, possibleFruits) => {
   let files = [
     ("./assets/splash_red_small.png", "splash_red"),
     ("./assets/all_assets.png", "all_assets"),
-    ("./assets/cross.png", "wall_cross"),
   ];
   List.fold_left(
     (assetMap, (filename, name)) =>
@@ -938,6 +937,15 @@ let moveEnemiesAndAttack = (state, dt, enemyGrid, env) => {
                   vx,
                   vy,
                 );
+
+              let (resolvedVx, resolvedVy) =
+                switch (
+                  resolveCollision(~state, ~dt, enemy.pos.x, enemy.pos.y, resolvedVx, resolvedVy)
+                ) {
+                | None => (0., 0.)
+                | Some(direction) => direction
+                };
+
               {
                 ...enemy,
                 direction: {
@@ -1237,14 +1245,13 @@ let moveEnemiesAndAttack = (state, dt, enemyGrid, env) => {
               {
                 x: x +. vx *. dt,
                 y: y +. vy *. dt,
-                vx,
-                vy,
+                vx: timeRemaining <= bombTime *. 1. /. 3. ? 0. : vx,
+                vy: timeRemaining <= bombTime *. 1. /. 3. ? 0. : vy,
                 timeRemaining: bomb.timeRemaining -. dt,
               },
               ...bombs,
             ],
             currentPowerups,
-            /*(health, [{...bomb, timeRemaining: bomb.timeRemaining -. dt}, ...bombs], currentPowerups)*/
           );
         },
       (health, [], currentPowerups),
@@ -1393,12 +1400,12 @@ let spawnEnemies =
   };
 
   let (kind, bulletSpeed, bulletDamage, weaponRange, bulletLifeSpan, speed) = {
-    /*let r = Utils.randomf(~min=0., ~max=1.);*/
-    let r = 0.25;
+    let r = Utils.randomf(~min=0., ~max=1.);
+    /*let r = 0.25;*/
     if (r < 0.2) {
       (Melee, 0., 0, 0., 0.2, 300.);
     } else if (r < 0.3) {
-      (Bomber, 300., 0, 320., 0.8, 120.);
+      (Bomber, 300., 0, 320., bombTime, 120.);
     } else {
       (Shooter, 300., 100, 240., 0.2, 120.);
     };
@@ -1840,7 +1847,7 @@ let drawBackground = (state, playerXScreenf, playerYScreenf, env) => {
         Draw.pushMatrix(env);
         Draw.translate(~x, ~y, env);
 
-        Draw.tint(Utils.color(255, 255, 255, 255), env);
+        /*Draw.tint(Utils.color(255, 255, 255, 255), env);*/
         let tiles = getCrossTiles(state, cellX, cellY);
         let padding = 2.;
         let img = AssetMap.find("all_assets", state.assetMap);
@@ -2044,30 +2051,35 @@ let shotgunColor2 = Utils.color(~r=40, ~g=160, ~b=60, ~a=255);
 
 let drawBullets =
     (
+      state,
       bullets,
       dt,
       ~color=Utils.color(~r=255, ~g=255, ~b=255, ~a=255),
-      ~strokeWeight=1,
-      ~bulletWidth as radx=12.,
+      ~bulletWidth as radx=30.,
+      ~bulletHeight as rady=8.,
       env,
     ) => {
   /* Draw the bullets.
      Uses some super hacky angle calculation do draw bullets as ellipses pointing in the right
      direction. */
-  Draw.fill(color, env);
+  /*Draw.fill(color, env);*/
+  Draw.tint(color, env);
+  let img = AssetMap.find("all_assets", state.assetMap);
+
   List.iter(
     ({x, y, vx, vy}: bulletT) => {
       Draw.pushMatrix(env);
-      Draw.translate(~x=x -. 6., ~y=y -. 1., env);
+      Draw.translate(~x=x, ~y=y, env);
       Draw.rotate(
         vy > 0. ?
           acos(vx /. sqrt(vx *. vx +. vy *. vy)) :
           Constants.pi /. 2. +. asin(vx /. sqrt(vx *. vx +. vy *. vy)),
         env,
       );
-      Draw.stroke(Constants.black, env);
-      Draw.strokeWeight(strokeWeight, env);
-      Draw.ellipsef(~center=(0., 0.), ~radx, ~rady=2., env);
+      Draw.subImagef(img, ~pos=(0., 0.), ~width=radx, ~height=rady, ~texPos=(4, 156), ~texWidth=120, ~texHeight=34, env);
+      /*Draw.stroke(Constants.black, env);*/
+      /*Draw.strokeWeight(strokeWeight, env);*/
+      /*Draw.ellipsef(~center=(0., 0.), ~radx, ~rady=2., env);*/
       Draw.popMatrix(env);
     },
     bullets,
@@ -2082,14 +2094,13 @@ let drawBombs = (bombs, dt, env) => {
       Draw.fill(Utils.color(~r=255, ~g=60, ~b=80, ~a=100), env);
       Draw.ellipsef(~center=(x, y), ~radx=10., ~rady=10., env);
 
-      let lastQuarter = bombTime *. 1. /. 4.;
-      if (timeRemaining <= lastQuarter) {
+      if (timeRemaining <= bombTime *. 1. /. 3.) {
         Draw.fill(Utils.color(~r=255, ~g=60, ~b=80, ~a=255), env);
         let percentage = (lastQuarter -. timeRemaining) /. lastQuarter;
         Draw.ellipsef(
           ~center=(x, y),
-          ~radx=percentage *. bombRadius +. 5.,
-          ~rady=percentage *. bombRadius +. 5.,
+          ~radx=percentage *. bombRadius,
+          ~rady=percentage *. bombRadius,
           env,
         );
       };
@@ -2326,7 +2337,7 @@ let drawEnemies = (state, dt, realdt, env) => {
     int_of_float(floor(state.y /. tileSizef)),
   );
 
-  let color = Utils.color(~r=255, ~g=60, ~b=80, ~a=255);
+  let bodyColor = Utils.color(~r=255, ~g=60, ~b=80, ~a=255);
   List.iter(
     ({pos: {x, y}, kind, isDead, direction, speed, path}) => {
       if (!isDead) {
@@ -2335,7 +2346,7 @@ let drawEnemies = (state, dt, realdt, env) => {
           (x, y),
           state.x -. x,
           ~kind,
-          ~bodyColor=color,
+          ~bodyColor,
           ~feetColor=Utils.color(~r=200, ~g=10, ~b=40, ~a=255),
           state.time,
           env,
@@ -2426,11 +2437,12 @@ let drawEnemies = (state, dt, realdt, env) => {
   );
 
   drawBullets(
+    state,
     state.enemyBullets,
     dt,
-    ~color,
-    ~bulletWidth=8.,
-    ~strokeWeight=2,
+    ~color=bodyColor,
+    ~bulletWidth=20.,
+    ~bulletHeight=5.,
     env,
   );
 
@@ -2903,7 +2915,7 @@ let draw = (state, env) => {
       (shotgunColor1, shotgunColor2);
     };
 
-  drawBullets(state.bullets, dt, ~color=bodyColor, env);
+  drawBullets(state, state.bullets, dt, ~color=bodyColor, env);
 
   Draw.popMatrix(env);
 

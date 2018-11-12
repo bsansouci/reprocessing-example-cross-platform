@@ -18,8 +18,8 @@ let deathMessageMaxTime = 3.;
 
 let maxNumberOfPowerups = 4;
 
-let bombTime = 1.0;
-let bombRadius = 80.;
+let bombTime = 0.8;
+let bombRadius = 70.;
 
 type aimingPacketT = {
   x: float,

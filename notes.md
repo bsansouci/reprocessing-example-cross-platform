@@ -1,5 +1,7 @@
 - Put dead people in another list
-- Fix bomber's collision
+- Make shooters have a longer range if the player is bellow or above them, otherwise the current range is great
+- Runners probably run too fast
+- [DONE] Fix bomber's collision
 - [WIP] Tweak bombers
     + move to the right spot in 1 player movement + then start blowing up faster
 - [DONE] Make melee guys twice as fast
